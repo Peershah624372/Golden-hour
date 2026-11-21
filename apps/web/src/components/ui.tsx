@@ -65,7 +65,8 @@ export function SimBanner({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
       }`}
     >
       <Info className="size-3.5 shrink-0" />
-      Prototype · simulated hospitals, ambulances and patients · in a real emergency call {EMERGENCY_NUMBER}
+      <span className="sm:hidden">Prototype with simulated data · real emergency: call {EMERGENCY_NUMBER}</span>
+      <span className="hidden sm:inline">Prototype · simulated hospitals, ambulances and patients · in a real emergency call {EMERGENCY_NUMBER}</span>
     </div>
   );
 }

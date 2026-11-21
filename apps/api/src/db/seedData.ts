@@ -14,14 +14,15 @@ export const STATIONS = [
 ];
 
 export const AMBULANCES: { id: string; callSign: string; type: UnitType; station: string; dLat: number; dLng: number }[] = [
-  { id: 'als-1', callSign: 'ALS-1', type: 'ALS', station: 'st-city', dLat: 0.0004, dLng: 0.0003 },
-  { id: 'als-2', callSign: 'ALS-2', type: 'ALS', station: 'st-north', dLat: 0.0003, dLng: -0.0004 },
-  { id: 'als-3', callSign: 'ALS-3', type: 'ALS', station: 'st-bypass', dLat: -0.0003, dLng: 0.0004 },
-  { id: 'bls-1', callSign: 'BLS-1', type: 'BLS', station: 'st-city', dLat: -0.0004, dLng: -0.0003 },
-  { id: 'bls-2', callSign: 'BLS-2', type: 'BLS', station: 'st-rohri', dLat: 0.0003, dLng: 0.0003 },
-  { id: 'bls-3', callSign: 'BLS-3', type: 'BLS', station: 'st-north', dLat: -0.0004, dLng: 0.0004 },
-  { id: 'bls-4', callSign: 'BLS-4', type: 'BLS', station: 'st-bypass', dLat: 0.0004, dLng: -0.0003 },
-  { id: 'bls-5', callSign: 'BLS-5', type: 'BLS', station: 'st-rohri', dLat: -0.0003, dLng: -0.0004 },
+  // Two units per station, parked ~300 m apart so their map labels don't overlap.
+  { id: 'als-1', callSign: 'ALS-1', type: 'ALS', station: 'st-city', dLat: 0.0015, dLng: 0.0012 },
+  { id: 'als-2', callSign: 'ALS-2', type: 'ALS', station: 'st-north', dLat: 0.0015, dLng: -0.0012 },
+  { id: 'als-3', callSign: 'ALS-3', type: 'ALS', station: 'st-bypass', dLat: -0.0012, dLng: 0.0015 },
+  { id: 'bls-1', callSign: 'BLS-1', type: 'BLS', station: 'st-city', dLat: -0.0015, dLng: -0.0012 },
+  { id: 'bls-2', callSign: 'BLS-2', type: 'BLS', station: 'st-rohri', dLat: 0.0015, dLng: 0.0012 },
+  { id: 'bls-3', callSign: 'BLS-3', type: 'BLS', station: 'st-north', dLat: -0.0015, dLng: 0.0012 },
+  { id: 'bls-4', callSign: 'BLS-4', type: 'BLS', station: 'st-bypass', dLat: 0.0012, dLng: -0.0015 },
+  { id: 'bls-5', callSign: 'BLS-5', type: 'BLS', station: 'st-rohri', dLat: -0.0015, dLng: -0.0012 },
 ];
 
 type U = [HospitalUnitType, number, HospitalUnitStatus];

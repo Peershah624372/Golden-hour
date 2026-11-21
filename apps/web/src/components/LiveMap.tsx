@@ -54,6 +54,22 @@ function hospitalIcon(h: Hospital) {
   });
 }
 
+/** Leaflet doesn't notice when its card changes size: re-measure on every resize (fixes blank/grey maps). */
+function AutoResize() {
+  const map = useMap();
+  useEffect(() => {
+    const el = map.getContainer();
+    const ro = new ResizeObserver(() => map.invalidateSize({ animate: false }));
+    ro.observe(el);
+    const t = setTimeout(() => map.invalidateSize({ animate: false }), 250);
+    return () => {
+      ro.disconnect();
+      clearTimeout(t);
+    };
+  }, [map]);
+  return null;
+}
+
 function FlyTo({ target }: { target: [number, number] | null }) {
   const map = useMap();
   useEffect(() => {
@@ -94,6 +110,7 @@ export function LiveMap(props: {
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      <AutoResize />
       <FlyTo target={props.flyTo ?? null} />
       {routes.map((r) => (
         <Polyline key={r.id} positions={r.points} pathOptions={{ color: r.color ?? '#2563eb', weight: 4, opacity: 0.7, dashArray: '6 6' }} />

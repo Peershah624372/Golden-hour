@@ -1,10 +1,10 @@
-import { BedDouble, Check, Clock, Hospital, Minus, Plus, X } from 'lucide-react';
+import { BedDouble, BellRing, Check, Clock, Hospital, Minus, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate } from 'react-router';
 import { EVENTS, type Hospital as HospitalDto, type HospitalUnit, type HospitalUnitStatus } from '@gh/shared';
 import { PriorityBadge } from '../components/ui';
 import { api } from '../lib/api';
-import { clockTime, titleCase, useNow } from '../lib/format';
+import { UNIT_LABEL, clockTime, titleCase, useNow } from '../lib/format';
 import { ATMIST_ROWS, TAG_LABEL, TAG_STYLE, type Handover } from '../lib/handover';
 import { getIdentity } from '../lib/identity';
 import { joinRooms, useSocketConnected, useSocketEvent } from '../lib/socket';
@@ -101,6 +101,16 @@ export default function ErPage() {
 
       <div className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_380px]">
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <ErStat label="Waiting for answer" value={pending.length} tone={pending.length ? 'bg-red-50 text-red-600' : 'bg-white text-ink'} />
+            <ErStat label="Incoming" value={incoming.length} tone="bg-white text-ink" />
+            <ErStat label="Free beds" value={hospital?.units.reduce((n, u) => n + (u.status === 'DIVERTING' ? 0 : u.bedsFree), 0) ?? 0} tone="bg-white text-brand-700" />
+            <ErStat
+              label="Units diverting"
+              value={hospital?.units.filter((u) => u.status === 'DIVERTING').length ?? 0}
+              tone={hospital?.units.some((u) => u.status === 'DIVERTING') ? 'bg-amber-50 text-amber-700' : 'bg-white text-ink'}
+            />
+          </div>
           {/* Pending pre-alerts: the most important thing on screen */}
           {pending.map((h) => (
             <PreAlertCard key={h.id} h={h} now={now} />
@@ -129,8 +139,15 @@ export default function ErPage() {
           )}
 
           {!pending.length && !incoming.length && (
-            <div className="card flex flex-col items-center gap-2 p-10 text-center text-slate-500">
-              No incoming patients. Pre-alerts appear here with a sound.
+            <div className="card flex flex-col items-center gap-3 p-10 text-center">
+              <span className="icon-tile size-16 rounded-3xl">
+                <BellRing className="size-8" />
+              </span>
+              <div className="text-lg font-extrabold">No incoming patients right now</div>
+              <div className="max-w-sm text-sm text-slate-500">
+                When an ambulance chooses this hospital, its ATMIST pre-alert appears here with a sound. Keep the capacity board on the right up to date so
+                patients are routed correctly.
+              </div>
             </div>
           )}
 
@@ -164,7 +181,7 @@ export default function ErPage() {
             return (
               <div key={u.unitType} className="card-tight p-3">
                 <div className="flex items-center gap-2">
-                  <div className="font-bold">{u.unitType === 'TRAUMA' ? 'Trauma / Emergency' : titleCase(u.unitType)}</div>
+                  <div className="font-bold">{UNIT_LABEL[u.unitType] ?? titleCase(u.unitType)}</div>
                   <div className="ml-auto flex items-center gap-1">
                     <button
                       aria-label="One bed fewer"
@@ -207,7 +224,16 @@ export default function ErPage() {
   );
 }
 
-const DECLINE_REASONS = ['No bed in this unit', 'No specialist available', 'Equipment down', 'Other'];
+function ErStat({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className={`card-tight p-3 ${tone}`}>
+      <div className="text-2xl font-extrabold">{value}</div>
+      <div className="text-xs font-semibold text-slate-500">{label}</div>
+    </div>
+  );
+}
+
+const DECLINE_REASONS =['No bed in this unit', 'No specialist available', 'Equipment down', 'Other'];
 
 function PreAlertCard({ h, now }: { h: Handover; now: number }) {
   const [declining, setDeclining] = useState(false);

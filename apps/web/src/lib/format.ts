@@ -26,6 +26,16 @@ export function clockTime(iso: string) {
 
 export const titleCase = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
+/** Hospital unit display names (acronyms kept as acronyms). */
+export const UNIT_LABEL: Record<string, string> = {
+  TRAUMA: 'Trauma / Emergency',
+  ICU: 'ICU',
+  BURNS: 'Burns',
+  MATERNITY: 'Maternity',
+  CARDIAC: 'Cardiac (cath lab)',
+  PAEDIATRIC: 'Paediatric',
+};
+
 /** Country emergency number shown on every citizen screen (configurable per region). */
 export const EMERGENCY_NUMBER = (import.meta.env.VITE_EMERGENCY_NUMBER as string | undefined) ?? '1122';
 

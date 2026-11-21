@@ -39,9 +39,10 @@ export const TAG_STYLE: Record<StartTag, string> = {
   BLACK: 'bg-black text-white ring-1 ring-slate-500',
 };
 
+/** START triage category names (kept distinct from P1-P4 priority words). */
 export const TAG_LABEL: Record<StartTag, string> = {
-  RED: 'Critical',
-  YELLOW: 'Serious',
+  RED: 'Immediate',
+  YELLOW: 'Delayed',
   GREEN: 'Minor',
   BLACK: 'Deceased',
 };

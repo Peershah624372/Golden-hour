@@ -201,6 +201,7 @@ export default function CrewPage() {
 
           <div className={`card relative overflow-hidden ${d.status === 'ON_SCENE' ? 'h-48 shrink-0' : 'min-h-56 flex-1'}`}>
             <LiveMap
+              className="absolute inset-0"
               ambulances={amb ? [amb] : []}
               incidents={[inc]}
               routes={routes}
@@ -239,7 +240,7 @@ export default function CrewPage() {
               )}
             </div>
             <div className="flex items-center gap-1.5 px-1 text-xs text-slate-500">
-              <MapPin className="size-3" /> {inc.locationIsApprox ? 'Approximate location' : `GPS ±${Math.round(inc.accuracyM ?? 0)} m`}
+              <MapPin className="size-3" /> {inc.locationIsApprox ? 'Approximate location' : inc.accuracyM ? `GPS ±${Math.round(inc.accuracyM)} m` : 'GPS location'}
               <PriorityBadge p={inc.priority} />
             </div>
           </div>

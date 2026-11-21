@@ -149,7 +149,7 @@ export default function SosPage() {
         <CallEmergency compact />
       </header>
 
-      <main className="flex flex-1 flex-col px-4 pb-6 pt-5">
+      <main className={`flex flex-1 flex-col px-4 pt-5 ${step === 'questions' ? 'pb-0' : 'pb-6'}`}>
         {stepIdx !== undefined && (
           <div className="mb-5">
             <Stepper steps={['What happened', 'People', 'Quick checks']} current={stepIdx} />
@@ -239,16 +239,19 @@ export default function SosPage() {
             </div>
             <Details value={description} onChange={setDescription} />
             <div className="flex-1" />
-            <button
-              onClick={send}
-              className="mt-6 flex w-full items-center justify-center gap-3 rounded-3xl bg-gradient-to-br from-red-600 to-red-700 py-5 text-2xl font-extrabold tracking-wide text-white shadow-lift shadow-red-200 transition active:scale-[0.98]"
-            >
-              <span className="flex size-9 items-center justify-center rounded-full bg-white/20">
-                <Ambulance className="size-5" />
-              </span>
-              SEND SOS
-            </button>
-            <p className="mt-2 text-center text-xs text-slate-500">Your location is sent with the SOS.</p>
+            {/* Always visible: the most important button must never scroll away or sit under anything. */}
+            <div className="sticky bottom-0 z-[1100] -mx-4 mt-4 bg-gradient-to-t from-canvas from-70% to-canvas/0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-6">
+              <button
+                onClick={send}
+                className="flex w-full items-center justify-center gap-3 rounded-3xl bg-gradient-to-br from-red-600 to-red-700 py-5 text-2xl font-extrabold tracking-wide text-white shadow-lift shadow-red-200 transition active:scale-[0.98]"
+              >
+                <span className="flex size-9 items-center justify-center rounded-full bg-white/20">
+                  <Ambulance className="size-5" />
+                </span>
+                SEND SOS
+              </button>
+              <p className="mt-2 text-center text-xs text-slate-500">Your location is sent with the SOS. Unsure? Send anyway.</p>
+            </div>
           </>
         )}
 
@@ -275,7 +278,8 @@ export default function SosPage() {
 
         {step === 'sent' && active && <SentView sos={active} onDone={reset} />}
       </main>
-      <CitizenTabBar />
+      {/* Hidden mid-SOS so nothing can be tapped by mistake; "Call 1122" stays in the header. */}
+      {(step === 'type' || step === 'sent' || step === 'error') && <CitizenTabBar />}
     </div>
   );
 }

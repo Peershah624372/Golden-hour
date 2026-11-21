@@ -44,10 +44,8 @@ export default function HomePage() {
           <section className="space-y-5">
             <div className="pt-2">
               <span className="chip bg-brand-100 text-brand-800">Built for the golden hour</span>
-              <h1 className="mt-3 text-4xl font-extrabold leading-[1.1] tracking-tight sm:text-5xl">
-                Help that reaches you,
-                <br />
-                <span className="text-brand-700">even when the internet doesn't.</span>
+              <h1 className="mt-3 text-[2.15rem] font-extrabold leading-[1.08] tracking-tight text-balance sm:text-5xl">
+                Help that reaches you, <span className="text-brand-700">even when the internet doesn't.</span>
               </h1>
               <p className="mt-3 max-w-lg text-slate-600">
                 Send an SOS by tap, voice or SMS. AI sorts the urgency, the right ambulance and the right hospital get ready, and you are guided

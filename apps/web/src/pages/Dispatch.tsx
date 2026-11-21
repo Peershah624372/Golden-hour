@@ -15,6 +15,7 @@ import {
 } from '@gh/shared';
 import { DispatchPanel } from '../components/DispatchPanel';
 import { LiveMap } from '../components/LiveMap';
+import { Overview } from '../components/Overview';
 import { SmsSimulator } from '../components/SmsSimulator';
 import { ChannelBadge, Logo, PriorityBadge } from '../components/ui';
 import { api } from '../lib/api';
@@ -208,17 +209,17 @@ export default function DispatchPage() {
           </div>
         </main>
 
-        {/* Detail */}
+        {/* Detail (or the live overview when nothing is selected) */}
         <aside className="card overflow-y-auto lg:w-[400px]">
+          {selected && (
+            <button onClick={() => setSelectedId(null)} className="px-4 pt-3 text-xs font-semibold text-brand-700 underline">
+              ← Back to overview
+            </button>
+          )}
           {selected ? (
             <IncidentDetail key={selected.id} inc={selected} now={now} dispatches={dispatches} hospitals={hospitals} />
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-sm text-slate-400">
-              <span className="icon-tile size-12">
-                <MapPin className="size-6" />
-              </span>
-              Select an incident from the queue or the map.
-            </div>
+            <Overview ambulances={ambulances} hospitals={hospitals} />
           )}
         </aside>
       </div>
@@ -289,7 +290,7 @@ function IncidentDetail({
           </span>
           <span className={`chip ${inc.locationIsApprox ? 'bg-amber-50 text-amber-700' : 'bg-canvas text-slate-600'}`}>
             <MapPin className="size-3" />
-            {inc.locationIsApprox ? 'Approximate location' : `±${Math.round(inc.accuracyM ?? 0)} m`}
+            {inc.locationIsApprox ? 'Approximate location' : inc.accuracyM ? `±${Math.round(inc.accuracyM)} m` : 'GPS location'}
           </span>
           <span className="chip bg-brand-50 text-brand-700">{titleCase(inc.status)}</span>
           {inc.reportCount > 1 && <span className="chip bg-sky-50 text-sky-700">Reported by {inc.reportCount} people</span>}
@@ -313,33 +314,24 @@ function IncidentDetail({
         </div>
       )}
 
-      {/* Why this priority */}
+      {/* Priority: why (rules + AI), then the dispatcher's decision, in one compact card */}
       <section className="rounded-2xl p-3 ring-1 ring-slate-100">
-        <div className="eyebrow mb-1.5">
-          Priority set by {inc.prioritySource === 'rules' ? 'red-flag rules' : inc.prioritySource === 'ai' ? 'AI (raised)' : 'dispatcher'}
-          {inc.priorityLocked && <span className="ml-1 text-red-500">· locked by red flag</span>}
+        <div className="eyebrow mb-1">
+          Priority · set by {inc.prioritySource === 'rules' ? 'red-flag rules' : inc.prioritySource === 'ai' ? 'AI (raised)' : 'dispatcher'}
+          {inc.priorityLocked && <span className="ml-1 text-red-500">· locked</span>}
         </div>
-        <ul className="list-inside list-disc text-sm text-slate-700">
-          {inc.priorityReasons.map((r) => (
-            <li key={r}>{r}</li>
-          ))}
-        </ul>
-        <div className="mt-3 flex items-start gap-2 rounded-xl bg-sky-50 p-2.5 text-sm">
-          <Bot className="mt-0.5 size-4 shrink-0 text-sky-600" />
+        <div className="text-sm font-medium text-slate-700">{inc.priorityReasons.join(' · ')}</div>
+        <div className="mt-1.5 flex items-start gap-1.5 text-xs text-slate-500">
+          <Bot className="mt-px size-3.5 shrink-0 text-sky-600" />
           {inc.aiSuggestion ? (
-            <div>
-              <span className="text-slate-600">AI suggests</span> <PriorityBadge p={inc.aiSuggestion.priority} />
-              <div className="text-xs text-slate-500">{inc.aiSuggestion.reasons.join(' · ')}</div>
-            </div>
+            <span>
+              AI suggests <b className="text-slate-700">{inc.aiSuggestion.priority}</b>: {inc.aiSuggestion.reasons.join(' · ')}
+            </span>
           ) : (
-            <span className="text-slate-500">{inc.description ? 'AI is reading the report…' : 'No free text: rules only.'}</span>
+            <span>{inc.description ? 'AI is reading the report…' : 'No free text: rules only.'}</span>
           )}
         </div>
-      </section>
-
-      {/* Layer 3: dispatcher decides */}
-      <section className="rounded-2xl p-3 ring-1 ring-slate-100">
-        <div className="eyebrow mb-2">Dispatcher decision</div>
+        <div className="mt-3">
         <div className="grid grid-cols-4 gap-1.5 rounded-2xl bg-canvas p-1">
           {PRIORITIES.map((p) => (
             <button
@@ -365,9 +357,10 @@ function IncidentDetail({
           />
         )}
         {error && <div className="mt-2 text-sm text-red-600">{error}</div>}
-        <button disabled={busy || confirmed || (needsReason && !reason.trim())} onClick={submit} className="btn-primary mt-3 w-full py-2.5">
+        <button disabled={busy || confirmed || (needsReason && !reason.trim())} onClick={submit} className="btn-primary mt-2 w-full py-2.5">
           {confirmed ? `${inc.priority} confirmed` : pending ? `Change to ${pending}` : `Confirm ${inc.priority}`}
         </button>
+        </div>
       </section>
 
       <DispatchPanel inc={inc} dispatches={dispatches} hospitals={hospitals} />
