@@ -1,0 +1,16 @@
+{
+  "name": "goldenhour",
+  "private": true,
+  "version": "0.1.0",
+  "description": "GoldenHour - AI emergency medical response network (EvoHacks II prototype)",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./apps/** dev",
+    "dev:api": "pnpm --filter @gh/api dev",
+    "dev:web": "pnpm --filter @gh/web dev",
+    "build": "pnpm --filter @gh/web build",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @gh/api db:generate",
+    "db:seed": "pnpm --filter @gh/api db:seed"
+  },
+  "packageManager": "pnpm@11.9.0"
+}

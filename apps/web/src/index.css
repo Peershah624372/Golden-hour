@@ -1,0 +1,107 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/plus-jakarta-sans';
+
+/*
+ * GoldenHour design system: calm, clinical, trustworthy.
+ * Soft mint canvas, deep teal brand, white rounded cards, red reserved for emergencies.
+ */
+@theme {
+  --font-sans: 'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Noto Nastaliq Urdu', sans-serif;
+
+  --color-brand-50: #eefaf7;
+  --color-brand-100: #d5f2ea;
+  --color-brand-200: #aee5d6;
+  --color-brand-300: #7dd1bd;
+  --color-brand-400: #4bb69f;
+  --color-brand-500: #2a9a84;
+  --color-brand-600: #1c7c6b;
+  --color-brand-700: #146357;
+  --color-brand-800: #114f46;
+  --color-brand-900: #0d3d37;
+
+  --color-navy-600: #1d4e89;
+  --color-navy-700: #163d6e;
+  --color-navy-800: #102c51;
+
+  --color-canvas: #f2f7f6;
+  --color-ink: #10231f;
+
+  --color-p1: #dc2626;
+  --color-p2: #ea580c;
+  --color-p3: #eab308;
+  --color-p4: #16a34a;
+
+  --shadow-soft: 0 1px 2px rgb(16 35 31 / 0.04), 0 8px 24px -8px rgb(16 35 31 / 0.10);
+  --shadow-lift: 0 2px 4px rgb(16 35 31 / 0.05), 0 16px 40px -12px rgb(16 35 31 / 0.18);
+}
+
+@layer components {
+  .card {
+    @apply rounded-3xl bg-white shadow-soft ring-1 ring-slate-900/5;
+  }
+  .card-tight {
+    @apply rounded-2xl bg-white shadow-soft ring-1 ring-slate-900/5;
+  }
+  .icon-tile {
+    @apply inline-flex shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-brand-700;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-700 font-bold text-white shadow-soft transition hover:bg-brand-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none;
+  }
+  .btn-soft {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-50 font-bold text-brand-800 transition hover:bg-brand-100 active:scale-[0.98] disabled:opacity-40;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl bg-white font-semibold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+  .eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-canvas font-sans text-ink antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.leaflet-container {
+  font: inherit;
+}
+
+/* Custom map markers */
+.gh-marker {
+  background: transparent;
+  border: 0;
+}
+.gh-pulse {
+  animation: gh-pulse 1.6s ease-out infinite;
+}
+@keyframes gh-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(220 38 38 / 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 18px rgb(220 38 38 / 0);
+  }
+}
+.gh-flash {
+  animation: gh-flash 1.2s ease-out 3;
+}
+@keyframes gh-flash {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: rgb(220 38 38 / 0.1);
+  }
+}
