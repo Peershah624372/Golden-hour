@@ -4,6 +4,8 @@ import { handleInboundSms } from '../channels/smsInbound';
 import { smsGatewayLive } from '../channels/smsOutbound';
 import { db } from '../db/client';
 import { messages } from '../db/schema';
+import { decryptText } from '../lib/crypto';
+import { DISPATCH_ROLES, staff } from '../lib/auth';
 import { HttpError, h } from './http';
 
 export const smsRouter = Router();
@@ -35,6 +37,7 @@ smsRouter.post(
 
 smsRouter.get(
   '/sms/status',
+  staff(...DISPATCH_ROLES),
   h(async (_req, res) => {
     res.json({ gateway: smsGatewayLive() ? 'twilio' : 'simulated' });
   }),
@@ -43,10 +46,11 @@ smsRouter.get(
 /** Recent SMS traffic for one simulated phone (demo panel). */
 smsRouter.get(
   '/sms/thread',
+  staff(...DISPATCH_ROLES),
   h(async (req, res) => {
     const from = String(req.query.from ?? '');
     if (!from.startsWith('sim:')) throw new HttpError(400, 'Only simulated numbers can be listed');
     const rows = await db.select().from(messages).where(eq(messages.address, from)).orderBy(desc(messages.createdAt)).limit(30);
-    res.json(rows.reverse().map((m) => ({ direction: m.direction, body: m.body, at: m.createdAt.toISOString() })));
+    res.json(rows.reverse().map((m) => ({ direction: m.direction, body: decryptText(m.body), at: m.createdAt.toISOString() })));
   }),
 );

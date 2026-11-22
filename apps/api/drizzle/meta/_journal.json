@@ -8,6 +8,27 @@
       "when": 1795284708061,
       "tag": "0000_yellow_gunslinger",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795327738621,
+      "tag": "0001_mci_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795329332733,
+      "tag": "0002_report_client_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795329622575,
+      "tag": "0003_caller_cancel",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { EVENTS, type Ambulance, type Dispatch, type Hospital, type HospitalUnit, type Incident } from '@gh/shared';
 import { api } from './api';
-import { getSocket, joinRooms, useSocketEvent } from './socket';
+import { getSocket, useRooms, useSocketEvent } from './socket';
 
 /** Live incidents, fleet and hospitals: initial REST load + WebSocket updates. */
 export function useLiveData(rooms: string[], opts: { onNewIncident?: (i: Incident) => void } = {}) {
@@ -25,18 +25,17 @@ export function useLiveData(rooms: string[], opts: { onNewIncident?: (i: Inciden
     setLoaded(true);
   }, []);
 
-  const roomsKey = rooms.join(',');
+  useRooms(rooms);
   useEffect(() => {
-    joinRooms(roomsKey.split(',').filter(Boolean));
-    void reload();
+    reload().catch(() => {}); // a 401 signs the tab out; the screen guard then sends it to sign-in
     // Reload after a reconnect so nothing missed while offline is lost.
     const s = getSocket();
-    const onReconnect = () => void reload();
+    const onReconnect = () => void reload().catch(() => {});
     s.io.on('reconnect', onReconnect);
     return () => {
       s.io.off('reconnect', onReconnect);
     };
-  }, [roomsKey, reload]);
+  }, [reload]);
 
   const { onNewIncident } = opts;
   useSocketEvent<Incident>(

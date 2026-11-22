@@ -2,7 +2,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { useEffect, useMemo } from 'react';
 import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet';
-import type { Ambulance, Hospital, Incident } from '@gh/shared';
+import { INCIDENT_TYPE_LABEL, type Ambulance, type Hospital, type Incident } from '@gh/shared';
 import { PRIORITY_STYLE } from '../lib/format';
 
 export const DEFAULT_CENTER: [number, number] = [27.7052, 68.8574];
@@ -116,7 +116,7 @@ export function LiveMap(props: {
         <Polyline key={r.id} positions={r.points} pathOptions={{ color: r.color ?? '#2563eb', weight: 4, opacity: 0.7, dashArray: '6 6' }} />
       ))}
       {hospitals.map((h) => (
-        <Marker key={h.id} position={[h.lat, h.lng]} icon={hospitalIcon(h)}>
+        <Marker key={h.id} position={[h.lat, h.lng]} icon={hospitalIcon(h)} title={`Hospital: ${h.name}`} alt={`Hospital: ${h.name}`}>
           <Tooltip direction="top" offset={[0, -10]}>
             <div className="text-xs">
               <div className="font-bold">{h.name}</div>
@@ -133,7 +133,14 @@ export function LiveMap(props: {
         </Marker>
       ))}
       {ambulances.map((a) => (
-        <Marker key={a.id} position={[a.lat, a.lng]} icon={ambulanceIcon(a, hl.has(a.id))} zIndexOffset={500}>
+        <Marker
+          key={a.id}
+          position={[a.lat, a.lng]}
+          icon={ambulanceIcon(a, hl.has(a.id))}
+          zIndexOffset={500}
+          title={`Ambulance ${a.callSign}, ${a.status.replace(/_/g, ' ').toLowerCase()}`}
+          alt={`Ambulance ${a.callSign}`}
+        >
           <Tooltip direction="top" offset={[0, -8]}>
             {a.callSign} ({a.type}) · {a.status.replace(/_/g, ' ').toLowerCase()}
           </Tooltip>
@@ -145,7 +152,9 @@ export function LiveMap(props: {
           position={[i.lat, i.lng]}
           icon={incidentIcon(i, i.id === props.selectedIncidentId)}
           zIndexOffset={1000}
-          eventHandlers={{ click: () => props.onSelectIncident?.(i.id) }}
+          title={`${i.priority} ${INCIDENT_TYPE_LABEL[i.type]} incident #${i.refCode}: open details`}
+          alt={`${i.priority} incident #${i.refCode}`}
+          eventHandlers={{ click: () => props.onSelectIncident?.(i.id), keypress: (e) => (e.originalEvent as KeyboardEvent).key === 'Enter' && props.onSelectIncident?.(i.id) }}
         />
       ))}
     </MapContainer>

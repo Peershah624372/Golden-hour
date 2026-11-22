@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Hospital,
   LayoutDashboard,
+  Lock,
   MessageSquareText,
   Radio,
   Stethoscope,
@@ -13,22 +14,42 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
-import type { Ambulance, Hospital as HospitalDto } from '@gh/shared';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { CallEmergency, Logo, SimBanner } from '../components/ui';
 import { api } from '../lib/api';
 import { EMERGENCY_NUMBER } from '../lib/format';
-import { setIdentity } from '../lib/identity';
+import { lastIdentity, resumeIdentity, signIn, type Role } from '../lib/identity';
+
+const SCREEN_OF: Record<Role, string> = { dispatcher: '/dispatch', shift_lead: '/dispatch', admin: '/admin', crew: '/crew', er: '/er' };
+const SCREEN_NAME: Record<string, string> = { dispatch: 'the Command Center', admin: 'the Admin Console', crew: 'the crew app', er: 'the ER board' };
 
 export default function HomePage() {
   const nav = useNavigate();
-  const [ambulances, setAmbulances] = useState<Ambulance[]>([]);
-  const [hospitals, setHospitals] = useState<HospitalDto[]>([]);
+  const [params] = useSearchParams();
+  const wanted = params.get('signin');
+  const [opts, setOpts] = useState<{ ambulances: { id: string; callSign: string; type: string }[]; hospitals: { id: string; name: string }[]; pinRequired: boolean } | null>(null);
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const last = lastIdentity();
 
   useEffect(() => {
-    api<Ambulance[]>('/ambulances').then(setAmbulances).catch(() => {});
-    api<HospitalDto[]>('/hospitals').then(setHospitals).catch(() => {});
+    // Names only (no positions, no patients): safe for anyone who opens the home page.
+    api<typeof opts>('/auth/options').then(setOpts).catch(() => {});
   }, []);
+
+  const go = async (key: string, req: Parameters<typeof signIn>[0]) => {
+    setBusy(key);
+    setError(null);
+    try {
+      const me = await signIn({ ...req, pin: pin || undefined });
+      nav(SCREEN_OF[me.role]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <div className="min-h-full bg-canvas">
@@ -80,33 +101,58 @@ export default function HomePage() {
 
           {/* Responder side */}
           <section className="card p-5 sm:p-6">
-            <div className="eyebrow">Responder screens · demo sign-in</div>
+            <div className="eyebrow">Responder screens · staff sign-in</div>
             <h2 className="mt-1 text-xl font-extrabold">Who is responding?</h2>
+            {wanted && SCREEN_NAME[wanted] && (
+              <div className="mt-3 flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
+                <Lock className="mt-0.5 size-4 shrink-0" />
+                Staff only: sign in below to open {SCREEN_NAME[wanted]}. The public SOS app never sees staff data.
+              </div>
+            )}
+            {last && !wanted && (
+              <button
+                onClick={() => {
+                  resumeIdentity(last);
+                  nav(SCREEN_OF[last.role]);
+                }}
+                className="mt-3 w-full rounded-2xl bg-brand-50 px-3 py-2 text-left text-sm font-semibold text-brand-800 ring-1 ring-brand-100 hover:bg-brand-100"
+              >
+                Continue as {last.name} →
+              </button>
+            )}
+            {opts?.pinRequired && (
+              <label className="mt-3 flex items-center gap-2 text-sm font-semibold">
+                <Lock className="size-4 text-slate-400" /> Staff PIN
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  className="w-28 rounded-xl bg-canvas px-3 py-1.5 ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                />
+              </label>
+            )}
+            {error && <div className="mt-3 rounded-xl bg-red-50 p-2.5 text-sm text-red-700 ring-1 ring-red-200">{error}</div>}
             <div className="mt-4 space-y-3">
               <RoleRow
                 icon={Radio}
                 title="Command Center"
-                desc="Live map, AI triage, one-click dispatch"
-                onClick={() => {
-                  setIdentity({ role: 'dispatcher', userId: 'u-disp-1', name: 'Dispatcher Ayesha' });
-                  nav('/dispatch');
-                }}
+                desc={busy === 'dispatch' ? 'Signing in…' : 'Live map, AI triage, one-click dispatch'}
+                onClick={() => go('dispatch', { role: 'dispatcher' })}
               />
               <RoleRow icon={AmbIcon} title="Ambulance Crew" desc="Assignments, status taps, patient tags">
                 <select
                   className="w-full rounded-xl border-0 bg-canvas px-3 py-2 text-sm font-medium ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500"
                   defaultValue=""
-                  onChange={(e) => {
-                    const a = ambulances.find((x) => x.id === e.target.value);
-                    if (!a) return;
-                    setIdentity({ role: 'crew', userId: `u-crew-${a.id}`, name: `${a.callSign} crew`, ambulanceId: a.id });
-                    nav('/crew');
-                  }}
+                  disabled={!!busy}
+                  aria-label="Ambulance crew: choose your unit to sign in"
+                  onChange={(e) => e.target.value && go('crew', { role: 'crew', ambulanceId: e.target.value })}
                 >
                   <option value="" disabled>
                     Choose your unit…
                   </option>
-                  {ambulances.map((a) => (
+                  {opts?.ambulances.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.callSign} · {a.type === 'ALS' ? 'Advanced' : 'Basic'} life support
                     </option>
@@ -117,17 +163,14 @@ export default function HomePage() {
                 <select
                   className="w-full rounded-xl border-0 bg-canvas px-3 py-2 text-sm font-medium ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500"
                   defaultValue=""
-                  onChange={(e) => {
-                    const h = hospitals.find((x) => x.id === e.target.value);
-                    if (!h) return;
-                    setIdentity({ role: 'er', userId: `u-er-${h.id}`, name: `${h.name} ER`, hospitalId: h.id });
-                    nav('/er');
-                  }}
+                  disabled={!!busy}
+                  aria-label="Hospital ER: choose your hospital to sign in"
+                  onChange={(e) => e.target.value && go('er', { role: 'er', hospitalId: e.target.value })}
                 >
                   <option value="" disabled>
                     Choose your hospital…
                   </option>
-                  {hospitals.map((h) => (
+                  {opts?.hospitals.map((h) => (
                     <option key={h.id} value={h.id}>
                       {h.name}
                     </option>
@@ -137,11 +180,8 @@ export default function HomePage() {
               <RoleRow
                 icon={LayoutDashboard}
                 title="Admin"
-                desc="KPIs, fleet, hospitals, audit log"
-                onClick={() => {
-                  setIdentity({ role: 'admin', userId: 'u-admin-1', name: 'Regional Admin' });
-                  nav('/admin');
-                }}
+                desc={busy === 'admin' ? 'Signing in…' : 'KPIs, fleet, hospitals, audit log'}
+                onClick={() => go('admin', { role: 'admin' })}
               />
             </div>
           </section>

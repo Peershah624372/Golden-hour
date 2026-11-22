@@ -27,7 +27,9 @@ async function connect(): Promise<{ db: DB; kind: 'postgres' | 'pglite'; close: 
   const { PGlite } = await import('@electric-sql/pglite');
   const { drizzle } = await import('drizzle-orm/pglite');
   const { migrate } = await import('drizzle-orm/pglite/migrator');
-  const client = new PGlite(path.resolve(here, '../../.pglite'));
+  // PGLITE_DIR=memory gives a throwaway in-memory database (automated tests).
+  const dir = process.env.PGLITE_DIR;
+  const client = dir === 'memory' ? new PGlite() : new PGlite(dir ? path.resolve(dir) : path.resolve(here, '../../.pglite'));
   const db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder });
   return { db: db as unknown as DB, kind: 'pglite', close: () => client.close() };

@@ -20,6 +20,7 @@ const key = (a: LatLng, b: LatLng) => `${a.lat.toFixed(4)},${a.lng.toFixed(4)};$
 let osrmDownUntil = 0; // simple circuit breaker so a dead server doesn't slow every request
 
 async function fetchJson(url: string) {
+  if (OSRM === 'off') throw new Error('routing disabled (OSRM_URL=off)'); // offline / tests
   if (Date.now() < osrmDownUntil) throw new Error('osrm circuit open');
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);

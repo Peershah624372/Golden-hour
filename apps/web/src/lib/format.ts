@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { Priority } from '@gh/shared';
 
-export const PRIORITY_STYLE: Record<Priority, { bg: string; text: string; ring: string; hex: string }> = {
-  P1: { bg: 'bg-red-600', text: 'text-red-700', ring: 'ring-red-600', hex: '#dc2626' },
-  P2: { bg: 'bg-orange-500', text: 'text-orange-700', ring: 'ring-orange-500', hex: '#f97316' },
-  P3: { bg: 'bg-yellow-400', text: 'text-yellow-700', ring: 'ring-yellow-400', hex: '#eab308' },
-  P4: { bg: 'bg-green-600', text: 'text-green-700', ring: 'ring-green-600', hex: '#16a34a' },
+/** `onHex` is the text colour that reaches 4.5:1 on `hex` (white fails on yellow). */
+export const PRIORITY_STYLE: Record<Priority, { bg: string; text: string; ring: string; hex: string; onHex: string }> = {
+  P1: { bg: 'bg-red-600', text: 'text-red-700', ring: 'ring-red-600', hex: '#dc2626', onHex: '#ffffff' },
+  P2: { bg: 'bg-orange-500', text: 'text-orange-700', ring: 'ring-orange-500', hex: '#cc4900', onHex: '#ffffff' },
+  P3: { bg: 'bg-yellow-400', text: 'text-yellow-700', ring: 'ring-yellow-400', hex: '#eab308', onHex: '#0f172a' },
+  P4: { bg: 'bg-green-600', text: 'text-green-700', ring: 'ring-green-600', hex: '#008737', onHex: '#ffffff' },
 };
 
 /** "3:07" style elapsed time since an ISO timestamp. */

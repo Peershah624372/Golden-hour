@@ -10,6 +10,7 @@ import { audit } from '../lib/audit';
 import { newId } from '../lib/ids';
 import { toHospital, toHospitalUnit } from '../lib/mappers';
 import { emit } from '../lib/realtime';
+import { DISPATCH_ROLES, incidentAccess, ownDispatch, ownHandover, ownHospital } from '../lib/auth';
 import { HttpError, actorOf, h, parse } from './http';
 
 export const hospitalsRouter = Router();
@@ -17,6 +18,7 @@ export const hospitalsRouter = Router();
 /** ER board: own hospital, its units and every pre-alert addressed to it. */
 hospitalsRouter.get(
   '/hospitals/:id/board',
+  ownHospital(),
   h(async (req, res) => {
     const id = String(req.params.id);
     const [hosp] = await db.select().from(hospitals).where(eq(hospitals.id, id));
@@ -29,6 +31,7 @@ hospitalsRouter.get(
 /** PATCH /api/hospitals/:id/units/:unit  { bedsFree?, status? }: one-tap capacity update */
 hospitalsRouter.patch(
   '/hospitals/:id/units/:unit',
+  ownHospital(),
   h(async (req, res) => {
     const body = parse(
       z.object({ bedsFree: z.number().int().min(0).max(500).optional(), status: z.enum(['ACCEPTING', 'LIMITED', 'DIVERTING']).optional() }),
@@ -59,6 +62,7 @@ hospitalsRouter.patch(
 /** POST /api/handovers/:id/ack  { decision, reason? }: ER accept / decline */
 hospitalsRouter.post(
   '/handovers/:id/ack',
+  ownHandover(),
   h(async (req, res) => {
     const body = parse(
       z.object({ decision: z.enum(['ACCEPTED', 'DECLINED']), reason: z.string().max(200).optional() }).refine(
@@ -73,14 +77,18 @@ hospitalsRouter.post(
 
 hospitalsRouter.get(
   '/incidents/:id/handovers',
+  incidentAccess(),
   h(async (req, res) => {
-    res.json(await handoversFor({ incidentId: String(req.params.id) }));
+    const all = await handoversFor({ incidentId: String(req.params.id) });
+    // An ER sees only the pre-alerts sent to it, never another hospital's.
+    res.json(req.user?.role === 'er' ? all.filter((x) => x.hospitalId === req.user!.hospitalId) : all);
   }),
 );
 
 /** POST /api/dispatches/:id/prealert  { hospitalId? }: set destination + send ATMIST (top match if omitted) */
 hospitalsRouter.post(
   '/dispatches/:id/prealert',
+  ownDispatch(),
   h(async (req, res) => {
     const body = parse(z.object({ hospitalId: z.string().optional() }), req.body ?? {});
     const id = String(req.params.id);
@@ -111,6 +119,7 @@ const PatientSchema = z.object({
 
 hospitalsRouter.get(
   '/incidents/:id/patients',
+  incidentAccess('id', [...DISPATCH_ROLES, 'crew']),
   h(async (req, res) => {
     res.json(await db.select().from(patients).where(eq(patients.incidentId, String(req.params.id))).orderBy(asc(patients.label)));
   }),
@@ -119,6 +128,7 @@ hospitalsRouter.get(
 /** PUT /api/incidents/:id/patients/:label: upsert one patient (A, B, C...). Updates live pre-alerts. */
 hospitalsRouter.put(
   '/incidents/:id/patients/:label',
+  incidentAccess('id', [...DISPATCH_ROLES, 'crew']),
   h(async (req, res) => {
     const incidentId = String(req.params.id);
     const label = String(req.params.label).toUpperCase().slice(0, 3);
@@ -137,6 +147,7 @@ hospitalsRouter.put(
       await audit({ actor: actorOf(req), action: 'tag_patient', entity: 'incident', entityId: incidentId, reason: `Patient ${label}: ${body.startTag}` });
     }
     emit(['dispatch', 'admin'], 'patient:updated', { incidentId, patient: row });
+    if (inc.mciActive) emit(['dispatch', 'admin'], EVENTS.mciUpdated, { incidentId });
     await refreshAtmistFor(incidentId);
     res.json(row);
   }),

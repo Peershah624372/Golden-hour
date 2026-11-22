@@ -17,10 +17,12 @@ import {
 import { db } from '../db/client';
 import { incidents, reports } from '../db/schema';
 import { audit } from '../lib/audit';
+import { decryptText, encryptText } from '../lib/crypto';
 import { newId } from '../lib/ids';
-import { LLM_MODEL, llmJson } from '../lib/llm';
+import { llmJson, llmModel } from '../lib/llm';
 import { toIncident } from '../lib/mappers';
 import { emit } from '../lib/realtime';
+import { checkMciTriggers } from './mci';
 import { findDuplicate } from './verify';
 
 export interface IntakeInput {
@@ -53,13 +55,43 @@ export function broadcastIncident(row: typeof incidents.$inferSelect, event: str
  * Intake & Triage Agent. Layer 1 (rules) runs synchronously and decides the priority
  * immediately; Layer 2 (AI) refines in the background and may only raise it.
  */
-export async function intakeReport(input: IntakeInput) {
-  // Idempotency: the offline queue may retry the same SOS several times.
-  if (input.clientId) {
-    const [existing] = await db.select().from(incidents).where(eq(incidents.clientId, input.clientId));
-    if (existing) return { incident: existing, merged: false, duplicateOf: null as string | null };
-  }
+/** A queued SOS older than this is not believed: the phone's clock is probably wrong. */
+export const MAX_QUEUED_AGE_MS = 24 * 60 * 60_000;
 
+/** Has this phone's SOS (same clientId) already arrived, as an incident or as a merged report? */
+async function alreadyReceived(clientId: string) {
+  const [own] = await db.select().from(incidents).where(eq(incidents.clientId, clientId));
+  if (own) return { incident: own, merged: false, duplicateOf: null as string | null };
+  const [rep] = await db.select().from(reports).where(eq(reports.clientId, clientId));
+  if (!rep) return null;
+  const [inc] = await db.select().from(incidents).where(eq(incidents.id, rep.incidentId));
+  return inc ? { incident: inc, merged: true, duplicateOf: inc.id as string | null } : null;
+}
+
+const isUniqueViolation = (e: unknown) => {
+  const err = e as { code?: string; cause?: { code?: string } };
+  return err?.code === '23505' || err?.cause?.code === '23505';
+};
+
+export async function intakeReport(input: IntakeInput) {
+  // Idempotency: the offline queue, Background Sync and the SMS copy may all deliver the same SOS.
+  if (input.clientId) {
+    const seen = await alreadyReceived(input.clientId);
+    if (seen) return seen;
+  }
+  try {
+    return await intakeNew(input);
+  } catch (e) {
+    // Two copies raced each other: the other one won, so this one is the same SOS.
+    if (input.clientId && isUniqueViolation(e)) {
+      const seen = await alreadyReceived(input.clientId);
+      if (seen) return seen;
+    }
+    throw e;
+  }
+}
+
+async function intakeNew(input: IntakeInput) {
   const triage = rulesTriage({
     type: input.type,
     patientsCount: input.patientsCount,
@@ -68,7 +100,10 @@ export async function intakeReport(input: IntakeInput) {
     description: input.description,
   });
   const now = new Date();
-  const reportedAt = input.createdAt && input.createdAt < now ? input.createdAt : now;
+  // Trust the phone's time only within reason (a queued SOS can be hours old, not days or in the future).
+  const phoneTimeOk = !!input.createdAt && input.createdAt <= now && now.getTime() - input.createdAt.getTime() <= MAX_QUEUED_AGE_MS;
+  const reportedAt = phoneTimeOk ? input.createdAt! : now;
+  const clockNote = input.createdAt && !phoneTimeOk ? ' (phone time ignored: clock looked wrong)' : '';
 
   // Verification Agent: merge into an open incident nearby instead of creating a duplicate.
   const dup = await findDuplicate({ lat: input.lat, lng: input.lng, type: input.type, at: reportedAt });
@@ -87,15 +122,16 @@ export async function intakeReport(input: IntakeInput) {
         priorityLocked: inc.priorityLocked || triage.locked,
         priorityReasons: raised ? triage.reasons : inc.priorityReasons,
         prioritySource: raised ? 'rules' : inc.prioritySource,
-        description: [inc.description, input.description].filter(Boolean).join(' | ') || null,
+        description: encryptText([decryptText(inc.description), input.description].filter(Boolean).join(' | ') || null),
       })
       .where(eq(incidents.id, inc.id))
       .returning();
     await db.insert(reports).values({
       id: newId(),
       incidentId: inc.id,
+      clientId: input.clientId ?? null,
       channel: input.channel,
-      rawText: input.rawText ?? input.description ?? null,
+      rawText: encryptText(input.rawText ?? input.description ?? null),
       lat: input.lat,
       lng: input.lng,
       reporterHash: input.reporterHash ?? null,
@@ -109,6 +145,7 @@ export async function intakeReport(input: IntakeInput) {
     });
     emit(STAFF_ROOMS, EVENTS.incidentMerged, { incidentId: inc.id, distanceM: dup.distanceM, reportCount: updated.reportCount });
     broadcastIncident(updated);
+    void checkMciTriggers().catch((e) => console.warn('[intake] MCI check failed', e));
     return { incident: updated, merged: true, duplicateOf: inc.id };
   }
 
@@ -132,7 +169,7 @@ export async function intakeReport(input: IntakeInput) {
       channel: input.channel,
       patientsCount: input.patientsCount,
       symptomFlags: triage.flags,
-      description: input.description ?? null,
+      description: encryptText(input.description ?? null),
       lang: input.lang ?? null,
       reporterHash: input.reporterHash ?? null,
       createdAt: reportedAt,
@@ -141,8 +178,9 @@ export async function intakeReport(input: IntakeInput) {
   await db.insert(reports).values({
     id: newId(),
     incidentId: id,
+    clientId: input.clientId ?? null,
     channel: input.channel,
-    rawText: input.rawText ?? input.description ?? null,
+    rawText: encryptText(input.rawText ?? input.description ?? null),
     lat: input.lat,
     lng: input.lng,
     reporterHash: input.reporterHash ?? null,
@@ -153,10 +191,12 @@ export async function intakeReport(input: IntakeInput) {
     action: 'create_incident',
     entity: 'incident',
     entityId: id,
-    reason: `${triage.priority} by rules: ${triage.reasons.join('; ')}`,
+    reason: `${triage.priority} by rules: ${triage.reasons.join('; ')}${clockNote}`,
     data: { channel: input.channel },
   });
   broadcastIncident(row, EVENTS.incidentNew);
+  // MCI Coordinator: 5+ patients or a cluster of reports -> suggest mass-casualty mode now.
+  await checkMciTriggers().catch((e) => console.warn('[intake] MCI check failed', e));
 
   // Layer 2: AI refinement in the background. Never blocks the SOS.
   void aiRefine(id).catch((e) => console.warn('[intake] AI refine failed', e));
@@ -188,12 +228,13 @@ Rules: never invent facts that are not in the report. If unsure between two prio
 /** Layer 2: AI suggestion. Stored for the dispatcher; may raise but never lower the priority. */
 export async function aiRefine(incidentId: string) {
   const [inc] = await db.select().from(incidents).where(eq(incidents.id, incidentId));
-  if (!inc || !inc.description) return;
+  const description = decryptText(inc?.description);
+  if (!inc || !description) return;
 
   const ai = await llmJson<AiTriage>(
     SYSTEM_PROMPT,
     `Report type selected on phone: ${inc.type}. Patients selected: ${inc.patientsCount}. ` +
-      `Flags from the yes/no questions: ${inc.symptomFlags.join(',') || 'none'}.\nReport text: """${inc.description}"""`,
+      `Flags from the yes/no questions: ${inc.symptomFlags.join(',') || 'none'}.\nReport text: """${description}"""`,
   );
   if (!ai) return;
 
@@ -214,7 +255,7 @@ export async function aiRefine(incidentId: string) {
   const [updated] = await db
     .update(incidents)
     .set({
-      aiSuggestion: { priority: aiPriority, reasons, model: LLM_MODEL },
+      aiSuggestion: { priority: aiPriority, reasons, model: llmModel() },
       summary: ai.summary?.slice(0, 300) ?? cur.summary,
       symptomFlags: [...new Set([...cur.symptomFlags, ...aiFlags])],
       patientsCount: Math.max(cur.patientsCount, Number(ai.patients) || 0),

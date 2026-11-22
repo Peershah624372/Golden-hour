@@ -9,6 +9,7 @@
     "dev:web": "pnpm --filter @gh/web dev",
     "build": "pnpm --filter @gh/web build",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @gh/api test",
     "db:generate": "pnpm --filter @gh/api db:generate",
     "db:seed": "pnpm --filter @gh/api db:seed"
   },

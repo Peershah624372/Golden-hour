@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
+import { ConflictError } from '../lib/errors';
 
 /** Wraps async handlers so thrown errors reach the error middleware (Express 5 also does this). */
 export const h =
@@ -22,13 +23,14 @@ export function parse<T extends z.ZodType>(schema: T, data: unknown): z.infer<T>
 }
 
 /**
- * Demo identity: the web app sends the signed-in demo user in `x-gh-user`.
- * (Prototype only. Production uses JWT + role-based access control.)
+ * Audit "who": taken from the verified staff token, never from anything the client
+ * could type. Unauthenticated callers (citizens, SMS webhook) are "anonymous".
  */
-export const actorOf = (req: Request) => (req.header('x-gh-user') || 'anonymous').slice(0, 64);
+export const actorOf = (req: Request) => req.user?.sub ?? 'anonymous';
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+  if (err instanceof ConflictError) return res.status(409).json({ error: err.message });
   console.error(err);
   res.status(500).json({ error: 'Internal error' });
 }

@@ -8,9 +8,11 @@ import { hospitalOptions } from '../agents/hospitalMatch';
 import { db } from '../db/client';
 import { ambulances, dispatches, hospitals, incidents } from '../db/schema';
 import { audit } from '../lib/audit';
+import { ConflictError } from '../lib/errors';
 import { toAmbulance, toIncident } from '../lib/mappers';
 import { movementOf, startMovement } from '../sim/simulator';
 import { sendPreAlert } from '../agents/preAlert';
+import { DISPATCH_ROLES, incidentAccess, ownAmbulance, ownDispatch, staff } from '../lib/auth';
 import { HttpError, actorOf, h, parse } from './http';
 
 export const fleetRouter = Router();
@@ -19,7 +21,7 @@ const wrapCrew = async <T>(fn: () => Promise<T>) => {
   try {
     return await fn();
   } catch (e) {
-    if (e instanceof CrewError || (e instanceof Error && /busy|out of service|Unknown|not found/i.test(e.message))) {
+    if (e instanceof CrewError || e instanceof ConflictError || (e instanceof Error && /busy|out of service|Unknown|not found/i.test(e.message))) {
       throw new HttpError(409, e.message);
     }
     throw e;
@@ -29,6 +31,7 @@ const wrapCrew = async <T>(fn: () => Promise<T>) => {
 /** GET /api/incidents/:id/dispatch-options: ranked units from the Dispatch Agent */
 fleetRouter.get(
   '/incidents/:id/dispatch-options',
+  staff(...DISPATCH_ROLES),
   h(async (req, res) => {
     res.json(await wrapCrew(() => dispatchOptions(String(req.params.id))));
   }),
@@ -37,6 +40,7 @@ fleetRouter.get(
 /** POST /api/incidents/:id/dispatch  { ambulanceIds, reason? } */
 fleetRouter.post(
   '/incidents/:id/dispatch',
+  staff(...DISPATCH_ROLES),
   h(async (req, res) => {
     const body = parse(z.object({ ambulanceIds: z.array(z.string()).min(1).max(6), reason: z.string().max(500).optional() }), req.body);
     const out = await wrapCrew(() => assignUnits(String(req.params.id), body.ambulanceIds, actorOf(req), body.reason));
@@ -46,6 +50,7 @@ fleetRouter.post(
 
 fleetRouter.get(
   '/incidents/:id/dispatches',
+  incidentAccess(),
   h(async (req, res) => {
     res.json(await activeDispatches(String(req.params.id)));
   }),
@@ -54,6 +59,7 @@ fleetRouter.get(
 /** GET /api/incidents/:id/hospital-options: ranked hospitals + reasons */
 fleetRouter.get(
   '/incidents/:id/hospital-options',
+  incidentAccess(),
   h(async (req, res) => {
     res.json(await wrapCrew(() => hospitalOptions(String(req.params.id))));
   }),
@@ -61,6 +67,7 @@ fleetRouter.get(
 
 fleetRouter.get(
   '/dispatches/active',
+  staff(...DISPATCH_ROLES),
   h(async (_req, res) => {
     res.json(await activeDispatches());
   }),
@@ -69,6 +76,7 @@ fleetRouter.get(
 /** PATCH /api/dispatches/:id/destination  { hospitalId, reason? }: crew or dispatcher picks the backup */
 fleetRouter.patch(
   '/dispatches/:id/destination',
+  ownDispatch(),
   h(async (req, res) => {
     const body = parse(z.object({ hospitalId: z.string(), reason: z.string().max(300).optional() }), req.body);
     const id = String(req.params.id);
@@ -89,6 +97,7 @@ fleetRouter.patch(
 /** Everything the crew app needs in one call. */
 fleetRouter.get(
   '/ambulances/:id/assignment',
+  ownAmbulance(),
   h(async (req, res) => {
     const id = String(req.params.id);
     const [a] = await db.select().from(ambulances).where(eq(ambulances.id, id));
@@ -111,6 +120,7 @@ fleetRouter.get(
 /** PATCH /api/ambulances/:id/status  { action }: crew one-tap status */
 fleetRouter.patch(
   '/ambulances/:id/status',
+  ownAmbulance(),
   h(async (req, res) => {
     const body = parse(z.object({ action: z.enum([...CREW_ACTIONS, 'NO_TRANSPORT', 'OUT_OF_SERVICE']) }), req.body);
     await wrapCrew(() => crewAction(String(req.params.id), body.action, actorOf(req)));
@@ -121,6 +131,7 @@ fleetRouter.patch(
 /** POST /api/ambulances/:id/location  { lat, lng }: real GPS from a crew phone (ignored while simulated driving) */
 fleetRouter.post(
   '/ambulances/:id/location',
+  ownAmbulance(),
   h(async (req, res) => {
     const body = parse(z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }), req.body);
     const id = String(req.params.id);

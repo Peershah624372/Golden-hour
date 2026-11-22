@@ -8,18 +8,23 @@ import {
   PRIORITY_TARGET_S,
   SYMPTOM_LABEL,
   isDowngrade,
+  type AlertKind,
   type Dispatch,
+  type EscalationAlert,
   type Hospital,
   type Incident,
   type Priority,
 } from '@gh/shared';
+import { CloseIncident } from '../components/CloseIncident';
 import { DispatchPanel } from '../components/DispatchPanel';
+import { MciPanel, MciSuggestion } from '../components/MciPanel';
 import { LiveMap } from '../components/LiveMap';
 import { Overview } from '../components/Overview';
 import { SmsSimulator } from '../components/SmsSimulator';
 import { ChannelBadge, Logo, PriorityBadge } from '../components/ui';
 import { api } from '../lib/api';
 import { clockTime, elapsed, secondsSince, titleCase, useNow } from '../lib/format';
+import { useAiStatus } from '../lib/aiStatus';
 import { useLiveData } from '../lib/live';
 import { useSocketConnected, useSocketEvent } from '../lib/socket';
 import { beep, unlockAudio } from '../lib/sound';
@@ -32,6 +37,7 @@ export default function DispatchPage() {
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
   const connected = useSocketConnected();
   const now = useNow(1000);
+  const ai = useAiStatus();
 
   const onNewIncident = useCallback((inc: Incident) => {
     beep(inc.priority === 'P1' ? [988, 0, 988, 0, 988] : [660, 0, 660]);
@@ -50,15 +56,17 @@ export default function DispatchPage() {
 
   const { incidents, ambulances, hospitals, dispatches, reload } = useLiveData(['dispatch', 'map'], { onNewIncident });
 
-  // Escalations / reroutes / closures as toasts.
-  const [toasts, setToasts] = useState<{ id: number; kind: string; message: string; incidentId?: string }[]>([]);
-  useSocketEvent<{ kind: string; message: string; incidentId?: string }>(
+  // Escalation timers, MCI Coordinator, reroutes and closures as toasts.
+  const [toasts, setToasts] = useState<(EscalationAlert & { id: number; sev: EscalationAlert['severity'] })[]>([]);
+  useSocketEvent<EscalationAlert>(
     EVENTS.alertEscalation,
     useCallback((a) => {
       const id = Date.now() + Math.random();
-      if (a.kind !== 'closed') beep([523, 0, 523]);
-      setToasts((t) => [...t.slice(-3), { id, ...a }]);
-      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), a.kind === 'closed' ? 5000 : 12000);
+      const sev = a.severity ?? (a.kind === 'closed' ? 'info' : a.kind === 'rerouted' ? 'warning' : 'critical');
+      if (sev === 'critical') beep([784, 0, 784, 0, 784]);
+      else if (sev === 'warning') beep([523, 0, 523]);
+      setToasts((t) => [...t.slice(-3), { ...a, id, sev }]);
+      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), sev === 'info' ? 5000 : sev === 'warning' ? 15000 : 20000);
     }, []),
   );
 
@@ -92,6 +100,18 @@ export default function DispatchPage() {
           <Stat icon={Ambulance} label="Units free" value={`${available}/${ambulances.length}`} tone="bg-sky-50 text-sky-700" />
         </div>
         <div className="flex-1" />
+        {ai && (
+          <span
+            className={`chip ${ai.enabled ? 'bg-sky-50 text-sky-800' : 'bg-slate-100 text-slate-600'}`}
+            title={
+              ai.enabled
+                ? 'AI reads free text in any language and may RAISE a priority, never lower it. You have the final say.'
+                : 'No AI key configured: red-flag rules set priorities and you decide. Everything still works.'
+            }
+          >
+            <Bot className="size-3.5" aria-hidden /> {ai.enabled ? `AI: ${ai.model}` : 'AI off · rules only'}
+          </span>
+        )}
         <span className={`chip ${connected ? 'bg-brand-50 text-brand-700' : 'bg-red-50 text-red-600'}`}>
           {connected ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />} {connected ? 'Live' : 'Reconnecting…'}
         </span>
@@ -149,6 +169,18 @@ export default function DispatchPage() {
                           </span>
                         )}
                         {inc.channel !== 'app' && <ChannelBadge c={inc.channel} />}
+                        {inc.cancelRequestedAt && (
+                          <span className="chip bg-slate-200 px-1.5 py-0 text-[10px] font-extrabold text-slate-700" title="The caller says help is no longer needed">
+                            Cancel?
+                          </span>
+                        )}
+                        {inc.mciActive ? (
+                          <span className="chip bg-red-600 px-1.5 py-0 text-[10px] font-extrabold text-white">MCI</span>
+                        ) : inc.mciSuggestion ? (
+                          <span className="chip bg-amber-100 px-1.5 py-0 text-[10px] font-extrabold text-amber-800" title={inc.mciSuggestion}>
+                            MCI?
+                          </span>
+                        ) : null}
                       </div>
                       <div className="truncate text-xs text-slate-500">
                         {inc.symptomFlags.map((f) => SYMPTOM_LABEL[f]).join(', ') || inc.summary || 'No details yet'}
@@ -194,30 +226,37 @@ export default function DispatchPage() {
               </button>
             )}
           </div>
-          <div className="pointer-events-none absolute right-3 top-3 z-1000 flex w-80 flex-col gap-2">
+          <div className="pointer-events-none absolute right-3 top-3 z-1000 flex w-80 flex-col gap-2" role="log" aria-live="assertive" aria-label="Alerts">
             {toasts.map((t) => (
               <button
                 key={t.id}
-                onClick={() => t.incidentId && setSelectedId(t.incidentId)}
-                className={`pointer-events-auto rounded-2xl px-4 py-3 text-left text-sm font-medium shadow-lift ${
-                  t.kind === 'closed' ? 'bg-white text-slate-700 ring-1 ring-slate-200' : t.kind === 'rerouted' ? 'bg-amber-400 text-slate-950' : 'bg-red-600 text-white'
+                onClick={() => {
+                  if (t.incidentId) setSelectedId(t.incidentId);
+                  setToasts((list) => list.filter((x) => x.id !== t.id));
+                }}
+                className={`pointer-events-auto flex items-start gap-2 rounded-2xl px-4 py-3 text-left text-sm font-medium shadow-lift ${
+                  t.sev === 'info' ? 'bg-white text-slate-700 ring-1 ring-slate-200' : t.sev === 'warning' ? 'bg-amber-400 text-slate-950' : 'bg-red-600 text-white'
                 }`}
               >
-                {t.message}
+                {t.sev !== 'info' && <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-label={t.sev} />}
+                <span>
+                  <span className="block text-[10px] font-extrabold uppercase tracking-wider opacity-80">{ALERT_TITLE[t.kind] ?? 'Alert'}</span>
+                  {t.message}
+                </span>
               </button>
             ))}
           </div>
         </main>
 
         {/* Detail (or the live overview when nothing is selected) */}
-        <aside className="card overflow-y-auto lg:w-[400px]">
+        <aside className="card overflow-y-auto lg:w-100">
           {selected && (
             <button onClick={() => setSelectedId(null)} className="px-4 pt-3 text-xs font-semibold text-brand-700 underline">
               ← Back to overview
             </button>
           )}
           {selected ? (
-            <IncidentDetail key={selected.id} inc={selected} now={now} dispatches={dispatches} hospitals={hospitals} />
+            <IncidentDetail key={selected.id} inc={selected} now={now} dispatches={dispatches} hospitals={hospitals} aiOn={!!ai?.enabled} />
           ) : (
             <Overview ambulances={ambulances} hospitals={hospitals} />
           )}
@@ -244,11 +283,13 @@ function IncidentDetail({
   now,
   dispatches,
   hospitals,
+  aiOn,
 }: {
   inc: Incident;
   now: number;
   dispatches: Dispatch[];
   hospitals: Hospital[];
+  aiOn: boolean;
 }) {
   const [pending, setPending] = useState<Priority | null>(null);
   const [reason, setReason] = useState('');
@@ -297,6 +338,8 @@ function IncidentDetail({
         </div>
       </div>
 
+      <MciSuggestion inc={inc} />
+
       {inc.symptomFlags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {inc.symptomFlags.map((f) => (
@@ -323,13 +366,7 @@ function IncidentDetail({
         <div className="text-sm font-medium text-slate-700">{inc.priorityReasons.join(' · ')}</div>
         <div className="mt-1.5 flex items-start gap-1.5 text-xs text-slate-500">
           <Bot className="mt-px size-3.5 shrink-0 text-sky-600" />
-          {inc.aiSuggestion ? (
-            <span>
-              AI suggests <b className="text-slate-700">{inc.aiSuggestion.priority}</b>: {inc.aiSuggestion.reasons.join(' · ')}
-            </span>
-          ) : (
-            <span>{inc.description ? 'AI is reading the report…' : 'No free text: rules only.'}</span>
-          )}
+          <span aria-live="polite">{aiLine(inc, aiOn, now)}</span>
         </div>
         <div className="mt-3">
         <div className="grid grid-cols-4 gap-1.5 rounded-2xl bg-canvas p-1">
@@ -363,7 +400,45 @@ function IncidentDetail({
         </div>
       </section>
 
+      <MciPanel inc={inc} />
+
       <DispatchPanel inc={inc} dispatches={dispatches} hospitals={hospitals} />
+
+      <CloseIncident inc={inc} dispatches={dispatches} />
     </div>
   );
 }
+
+/** What the AI did for this incident, said honestly (including when it did nothing). */
+function aiLine(inc: Incident, aiOn: boolean, now: number) {
+  const s = inc.aiSuggestion;
+  if (s) {
+    const rel = rank(s.priority) < rank(inc.priority) ? 'higher than now' : rank(s.priority) > rank(inc.priority) ? 'lower (AI can never lower a priority)' : 'agrees';
+    return (
+      <>
+        AI suggests <b className="text-slate-700">{s.priority}</b> ({rel}): {s.reasons.join(' · ')}
+      </>
+    );
+  }
+  if (!inc.description) return 'No free text to read: the red-flag rules decided.';
+  if (!aiOn) return 'AI is off: the red-flag rules decided. Everything still works.';
+  if (now - new Date(inc.createdAt).getTime() < 20_000) return 'AI is reading the report…';
+  return 'AI unavailable for this report: the red-flag rules decided.';
+}
+
+const ALERT_TITLE: Partial<Record<AlertKind, string>> = {
+  untriaged: 'Not triaged',
+  overdue: 'Waiting too long',
+  no_unit: 'No free unit',
+  accept_timeout: 'Crew not responding',
+  stalled: 'Unit not moving',
+  mci_suggested: 'MCI Coordinator',
+  mci_activated: 'Mass casualty',
+  preempted: 'Pre-empted',
+  rerouted: 'Rerouted',
+  no_hospital: 'No hospital',
+  requeued: 'Back in the queue',
+  stood_down: 'Unit stood down',
+  caller_cancel: 'Caller cancelling',
+  closed: 'Closed',
+};

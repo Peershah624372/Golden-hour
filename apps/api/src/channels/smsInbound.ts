@@ -6,6 +6,7 @@ import { db } from '../db/client';
 import { ambulances, dispatches, incidents, messages } from '../db/schema';
 import { DEMO_CENTER } from '../db/seedData';
 import { audit } from '../lib/audit';
+import { encryptText } from '../lib/crypto';
 import { hashReporter, newId } from '../lib/ids';
 import { geocodeLandmark, parsePlainSms } from './smsParser';
 import { sendSms } from './smsOutbound';
@@ -36,7 +37,7 @@ export async function handleInboundSms(from: string, body: string): Promise<Inbo
   const text = body.trim().slice(0, 1000);
   const reporterHash = hashReporter(from);
   const logIn = (incidentId: string | null) =>
-    db.insert(messages).values({ id: newId(), incidentId, direction: 'IN', channel: 'sms', address: from, body: text });
+    db.insert(messages).values({ id: newId(), incidentId, direction: 'IN', channel: 'sms', address: from, body: encryptText(text) });
 
   // 1. Crew status by SMS when data drops:  GH ALS-3 ONSCENE
   const crew = decodeCrewSms(text);
@@ -88,7 +89,7 @@ export async function handleInboundSms(from: string, body: string): Promise<Inbo
         accuracyM: c.accuracyM,
         channel: 'sms',
         reporterHash,
-        rawText: text,
+        rawText: text, // intake encrypts it
       });
       await logIn(incident.id);
       const reply = sosReply(incident.refCode, merged);

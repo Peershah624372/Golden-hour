@@ -39,7 +39,9 @@ const toggleIn = (csv: string | null, item: string) => {
 export function CrewOnScene({ inc, d }: { inc: Incident; d: Dispatch }) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [active, setActive] = useState('A');
-  const labels = Array.from({ length: Math.min(Math.max(inc.patientsCount, 1), 6) }, (_, i) => String.fromCharCode(65 + i));
+  const [extra, setExtra] = useState(0); // more patients found on scene than were reported
+  const count = Math.min(Math.max(inc.patientsCount, patients.length, 1) + extra, 26);
+  const labels = Array.from({ length: count }, (_, i) => String.fromCharCode(65 + i));
 
   const loadPatients = useCallback(() => {
     api<Patient[]>(`/incidents/${inc.id}/patients`).then(setPatients).catch(() => {});
@@ -60,7 +62,7 @@ export function CrewOnScene({ inc, d }: { inc: Incident; d: Dispatch }) {
       <section className="card p-4">
         <div className="mb-2 flex items-center gap-2">
           <span className="eyebrow">Patients</span>
-          <div className="ml-auto flex gap-1">
+          <div className="ml-auto flex flex-wrap justify-end gap-1">
             {labels.map((l) => {
               const tag = patients.find((x) => x.label === l)?.startTag;
               return (
@@ -73,6 +75,19 @@ export function CrewOnScene({ inc, d }: { inc: Incident; d: Dispatch }) {
                 </button>
               );
             })}
+            {count < 26 && (
+              <button
+                onClick={() => {
+                  setExtra((x) => x + 1);
+                  setActive(String.fromCharCode(65 + count));
+                }}
+                className="size-9 rounded-lg bg-white font-bold text-brand-700 ring-1 ring-brand-200"
+                aria-label="Add a patient"
+                title="Add a patient"
+              >
+                +
+              </button>
+            )}
           </div>
         </div>
 

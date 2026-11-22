@@ -1,5 +1,6 @@
 import type { Ambulance, Hospital, HospitalUnit, Incident } from '@gh/shared';
 import type { ambulances, hospitalUnits, hospitals, incidents } from '../db/schema';
+import { decryptText } from './crypto';
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
@@ -21,10 +22,15 @@ export function toIncident(r: typeof incidents.$inferSelect): Incident {
     channel: r.channel,
     patientsCount: r.patientsCount,
     symptomFlags: r.symptomFlags,
-    description: r.description,
+    description: decryptText(r.description), // stored encrypted; staff see plain text
     summary: r.summary,
     reportCount: r.reportCount,
     mergedInto: r.mergedInto,
+    mciSuggestion: r.mciSuggestion,
+    mciActive: r.mciActive,
+    mciActivatedAt: iso(r.mciActivatedAt),
+    mciDismissedAt: iso(r.mciDismissedAt),
+    cancelRequestedAt: iso(r.cancelRequestedAt),
     createdAt: r.createdAt.toISOString(),
     triagedAt: iso(r.triagedAt),
     dispatchedAt: iso(r.dispatchedAt),

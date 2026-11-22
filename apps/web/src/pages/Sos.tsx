@@ -22,7 +22,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EVENTS,
-  PRIORITY_LABEL,
   pickGuides,
   rulesTriage,
   type Ambulance as AmbulanceDto,
@@ -35,32 +34,38 @@ import { FirstAid } from '../components/FirstAid';
 import { LiveMap } from '../components/LiveMap';
 import { CallEmergency, CitizenTabBar, Logo, PriorityBadge, SimBanner, Stepper } from '../components/ui';
 import { api } from '../lib/api';
+import { EMERGENCY_NUMBER } from '../lib/format';
 import { getFix, type Fix } from '../lib/geo';
+import { STRINGS, TIMELINE_STATUSES, getLang, useDocumentLang, useLang, useT, type Lang } from '../lib/i18n';
 import { enqueueSos, flushQueue, markSmsOpened, onQueueChange, useOnline } from '../lib/queue';
 import { buildSosSms, smsHref, smsIdOf } from '../lib/sms';
-import { joinRooms, useSocketEvent } from '../lib/socket';
+import { useRooms, useSocketEvent } from '../lib/socket';
 import { loadActiveSos, newClientId, saveActiveSos, sendOnline, type ActiveSos, type SosDraft } from '../lib/sos';
 
-const TYPES: { id: IncidentType; label: string; icon: LucideIcon; tint: string }[] = [
-  { id: 'ACC', label: 'Accident', icon: Car, tint: 'bg-red-50 text-red-600' },
-  { id: 'CRD', label: 'Chest pain', icon: HeartPulse, tint: 'bg-rose-50 text-rose-600' },
-  { id: 'BRT', label: 'Breathing', icon: Wind, tint: 'bg-sky-50 text-sky-600' },
-  { id: 'BRN', label: 'Burn', icon: Flame, tint: 'bg-orange-50 text-orange-600' },
-  { id: 'MAT', label: 'Pregnancy', icon: Baby, tint: 'bg-pink-50 text-pink-600' },
-  { id: 'MED', label: 'Illness', icon: Stethoscope, tint: 'bg-brand-50 text-brand-700' },
-  { id: 'OTH', label: 'Something else', icon: HelpCircle, tint: 'bg-slate-100 text-slate-600' },
+// Labels come from the citizen's language (lib/i18n).
+const TYPES: { id: IncidentType; icon: LucideIcon; tint: string }[] = [
+  { id: 'ACC', icon: Car, tint: 'bg-red-50 text-red-600' },
+  { id: 'CRD', icon: HeartPulse, tint: 'bg-rose-50 text-rose-600' },
+  { id: 'BRT', icon: Wind, tint: 'bg-sky-50 text-sky-600' },
+  { id: 'BRN', icon: Flame, tint: 'bg-orange-50 text-orange-600' },
+  { id: 'MAT', icon: Baby, tint: 'bg-pink-50 text-pink-600' },
+  { id: 'MED', icon: Stethoscope, tint: 'bg-brand-50 text-brand-700' },
+  { id: 'OTH', icon: HelpCircle, tint: 'bg-slate-100 text-slate-600' },
 ];
 
 type Step = 'type' | 'patients' | 'questions' | 'sending' | 'sent' | 'error';
 const STEP_INDEX: Partial<Record<Step, number>> = { type: 0, patients: 1, questions: 2 };
 
-const QUESTIONS: { key: keyof RedFlagAnswers; q: string; danger: boolean }[] = [
-  { key: 'breathing', q: 'Is the person breathing?', danger: false },
-  { key: 'responding', q: 'Do they respond when you speak or touch them?', danger: false },
-  { key: 'heavyBleeding', q: 'Are they bleeding heavily?', danger: true },
+const QUESTIONS: { key: keyof RedFlagAnswers; danger: boolean }[] = [
+  { key: 'breathing', danger: false },
+  { key: 'responding', danger: false },
+  { key: 'heavyBleeding', danger: true },
 ];
 
 export default function SosPage() {
+  const [lang, setLang] = useLang();
+  const t = STRINGS[lang];
+  useDocumentLang(lang);
   const [active, setActive] = useState<ActiveSos | null>(() => loadActiveSos());
   const [step, setStep] = useState<Step>(() => (loadActiveSos() ? 'sent' : 'type'));
   const [type, setType] = useState<IncidentType | null>(null);
@@ -128,17 +133,17 @@ export default function SosPage() {
   const stepIdx = STEP_INDEX[step];
 
   return (
-    <div className="mx-auto flex min-h-full max-w-md flex-col bg-canvas">
+    <div className="mx-auto flex min-h-full max-w-md flex-col bg-canvas" dir={lang === 'ur' ? 'rtl' : 'ltr'}>
       <SimBanner />
       <header className="flex items-center justify-between gap-2 bg-white px-4 py-3 shadow-[0_1px_0_rgb(15_23_42/0.05)]">
         <div className="flex items-center gap-2">
           {(step === 'patients' || step === 'questions') && (
             <button
-              aria-label="Back"
-              className="-ml-1 rounded-full p-1.5 text-slate-500 hover:bg-slate-100"
+              aria-label={t.back}
+              className="-ms-1 rounded-full p-1.5 text-slate-500 hover:bg-slate-100"
               onClick={() => setStep(step === 'questions' ? 'patients' : 'type')}
             >
-              <ChevronLeft className="size-5" />
+              <ChevronLeft className="size-5 rtl:rotate-180" />
             </button>
           )}
           <div>
@@ -146,36 +151,39 @@ export default function SosPage() {
             <LocationLine fix={fix} />
           </div>
         </div>
-        <CallEmergency compact />
+        <div className="flex items-center gap-1.5">
+          <LangSwitch lang={lang} onChange={setLang} />
+          <CallEmergency compact />
+        </div>
       </header>
 
       <main className={`flex flex-1 flex-col px-4 pt-5 ${step === 'questions' ? 'pb-0' : 'pb-6'}`}>
         {stepIdx !== undefined && (
           <div className="mb-5">
-            <Stepper steps={['What happened', 'People', 'Quick checks']} current={stepIdx} />
+            <Stepper steps={t.steps} current={stepIdx} />
           </div>
         )}
 
         {step === 'type' && (
           <>
-            <h1 className="text-2xl font-extrabold tracking-tight">What happened?</h1>
-            <p className="mt-1 text-slate-500">Tap one. Help is arranged as fast as possible.</p>
+            <h1 className="text-2xl font-extrabold tracking-tight">{t.whatHappened}</h1>
+            <p className="mt-1 text-slate-500">{t.tapOne}</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
-              {TYPES.map((t) => (
+              {TYPES.map((ty) => (
                 <button
-                  key={t.id}
+                  key={ty.id}
                   onClick={() => {
-                    setType(t.id);
+                    setType(ty.id);
                     setStep('patients');
                   }}
-                  className={`card-tight flex items-center gap-3 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.97] ${
-                    t.id === 'OTH' ? 'col-span-2' : 'flex-col items-start'
+                  className={`card-tight flex items-center gap-3 p-4 text-start transition hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.97] ${
+                    ty.id === 'OTH' ? 'col-span-2' : 'flex-col items-start'
                   }`}
                 >
-                  <span className={`icon-tile size-12 ${t.tint}`}>
-                    <t.icon className="size-6" />
+                  <span className={`icon-tile size-12 ${ty.tint}`} aria-hidden>
+                    <ty.icon className="size-6" />
                   </span>
-                  <span className="text-base font-bold">{t.label}</span>
+                  <span className="text-base font-bold">{t.types[ty.id]}</span>
                 </button>
               ))}
             </div>
@@ -184,8 +192,8 @@ export default function SosPage() {
 
         {step === 'patients' && (
           <>
-            <h1 className="text-2xl font-extrabold tracking-tight">How many people are hurt?</h1>
-            <p className="mt-1 text-slate-500">A best guess is fine.</p>
+            <h1 className="text-2xl font-extrabold tracking-tight">{t.howMany}</h1>
+            <p className="mt-1 text-slate-500">{t.bestGuess}</p>
             <div className="mt-5 grid grid-cols-3 gap-3">
               {[1, 2, 3, 4, 5, 10].map((n) => (
                 <button
@@ -207,23 +215,26 @@ export default function SosPage() {
 
         {step === 'questions' && (
           <>
-            <h1 className="text-2xl font-extrabold tracking-tight">{patients > 1 ? 'The worst-hurt person' : 'About the person'}</h1>
-            <p className="mt-1 text-slate-500">These three answers set the priority instantly.</p>
+            <h1 className="text-2xl font-extrabold tracking-tight">{patients > 1 ? t.worstHurt : t.aboutPerson}</h1>
+            <p className="mt-1 text-slate-500">{t.threeAnswers}</p>
             <div className="mt-4 space-y-3">
-              {QUESTIONS.map(({ key, q, danger }) => (
-                <div key={key} className="card-tight p-4">
-                  <div className="mb-3 font-bold">{q}</div>
+              {QUESTIONS.map(({ key, danger }) => (
+                <div key={key} className="card-tight p-4" role="group" aria-labelledby={`q-${key}`}>
+                  <div id={`q-${key}`} className="mb-3 font-bold">
+                    {t.questions[key]}
+                  </div>
                   <div className="grid grid-cols-3 gap-2 rounded-2xl bg-canvas p-1">
                     {([
-                      [true, 'Yes'],
-                      [false, 'No'],
-                      [null, 'Not sure'],
+                      [true, t.yes],
+                      [false, t.no],
+                      [null, t.notSure],
                     ] as const).map(([val, label]) => {
                       const selected = answers[key] === val;
                       const bad = danger ? val === true : val === false;
                       return (
                         <button
-                          key={label}
+                          key={String(val)}
+                          aria-pressed={selected}
                           onClick={() => setAnswers((a) => ({ ...a, [key]: val }))}
                           className={`rounded-xl py-2.5 text-base font-bold transition active:scale-95 ${
                             selected ? (bad ? 'bg-red-600 text-white shadow-soft' : 'bg-brand-700 text-white shadow-soft') : 'text-slate-500 hover:bg-white'
@@ -246,32 +257,32 @@ export default function SosPage() {
                 className="flex w-full items-center justify-center gap-3 rounded-3xl bg-gradient-to-br from-red-600 to-red-700 py-5 text-2xl font-extrabold tracking-wide text-white shadow-lift shadow-red-200 transition active:scale-[0.98]"
               >
                 <span className="flex size-9 items-center justify-center rounded-full bg-white/20">
-                  <Ambulance className="size-5" />
+                  <Ambulance className="size-5" aria-hidden />
                 </span>
-                SEND SOS
+                {t.sendSos}
               </button>
-              <p className="mt-2 text-center text-xs text-slate-500">Your location is sent with the SOS. Unsure? Send anyway.</p>
+              <p className="mt-2 text-center text-xs text-slate-500">{t.locationNote}</p>
             </div>
           </>
         )}
 
         {step === 'sending' && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center" role="status">
             <span className="flex size-20 items-center justify-center rounded-full bg-red-50">
-              <Loader2 className="size-10 animate-spin text-red-600" />
+              <Loader2 className="size-10 animate-spin text-red-600" aria-hidden />
             </span>
-            <div className="text-xl font-extrabold">Sending your SOS…</div>
+            <div className="text-xl font-extrabold">{t.sending}</div>
           </div>
         )}
 
         {step === 'error' && (
-          <div className="card flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-            <div className="text-xl font-extrabold text-red-700">Something went wrong</div>
+          <div className="card flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center" role="alert">
+            <div className="text-xl font-extrabold text-red-700">{t.errTitle}</div>
             <p className="text-slate-600">{error}</p>
-            <p className="text-slate-600">Please call the emergency number now.</p>
+            <p className="text-slate-600">{t.errCall}</p>
             <CallEmergency />
             <button className="btn-ghost mt-2 px-5 py-3" onClick={send}>
-              Try again
+              {t.tryAgain}
             </button>
           </div>
         )}
@@ -285,16 +296,36 @@ export default function SosPage() {
 }
 
 function LocationLine({ fix }: { fix: Fix | null }) {
+  const t = useT();
   if (!fix)
     return (
-      <div className="flex items-center gap-1 text-[11px] text-slate-500">
-        <Loader2 className="size-3 animate-spin" /> Finding your location…
+      <div className="flex items-center gap-1 text-[11px] text-slate-500" role="status">
+        <Loader2 className="size-3 animate-spin" aria-hidden /> {t.findingLocation}
       </div>
     );
   return (
-    <div className={`flex items-center gap-1 text-[11px] font-medium ${fix.approx ? 'text-amber-600' : 'text-brand-600'}`}>
-      <MapPin className="size-3" />
-      {fix.approx ? 'GPS unavailable: demo location used' : `Location found (±${Math.round(fix.accuracyM)} m)`}
+    <div className={`flex items-center gap-1 text-[11px] font-medium ${fix.approx ? 'text-amber-700' : 'text-brand-700'}`} role="status">
+      <MapPin className="size-3" aria-hidden />
+      {fix.approx ? t.gpsUnavailable : t.locationFound(Math.round(fix.accuracyM))}
+    </div>
+  );
+}
+
+/** English / اردو for the person asking for help (remembered on the phone). */
+function LangSwitch({ lang, onChange }: { lang: Lang; onChange: (l: Lang) => void }) {
+  return (
+    <div className="flex rounded-full bg-canvas p-0.5 text-xs font-bold" role="group" aria-label="Language / زبان">
+      {(['en', 'ur'] as const).map((l) => (
+        <button
+          key={l}
+          lang={l}
+          aria-pressed={lang === l}
+          onClick={() => onChange(l)}
+          className={`rounded-full px-2.5 py-1.5 ${lang === l ? 'bg-white text-brand-800 shadow-soft' : 'text-slate-500'}`}
+        >
+          {l === 'en' ? 'EN' : 'اردو'}
+        </button>
+      ))}
     </div>
   );
 }
@@ -312,9 +343,11 @@ type SpeechRec = {
 
 /** Optional free text; voice input (Level 1 only: browser speech-to-text needs internet). */
 function Details({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [listening, setListening] = useState(false);
-  const [lang, setLang] = useState<'en-US' | 'ur-PK'>('en-US');
+  // Speech recognition follows the language the person chose for the app.
+  const [lang, setLang] = useState<'en-US' | 'ur-PK'>(() => (getLang() === 'ur' ? 'ur-PK' : 'en-US'));
   const recRef = useRef<SpeechRec | null>(null);
   const Ctor = (window as unknown as { SpeechRecognition?: new () => SpeechRec; webkitSpeechRecognition?: new () => SpeechRec })
     .SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: new () => SpeechRec }).webkitSpeechRecognition;
@@ -344,13 +377,13 @@ function Details({ value, onChange }: { value: string; onChange: (v: string) => 
   if (!open)
     return (
       <button className="btn-soft mt-4 w-full py-3 text-sm" onClick={() => setOpen(true)}>
-        <Mic className="size-4" /> Add details by voice or text (optional)
+        <Mic className="size-4" aria-hidden /> {t.addDetails}
       </button>
     );
   return (
     <div className="card-tight mt-4 p-4">
       <label className="mb-2 block font-bold" htmlFor="desc">
-        What do you see? <span className="font-normal text-slate-500">Any language</span>
+        {t.whatDoYouSee} <span className="font-normal text-slate-500">{t.anyLanguage}</span>
       </label>
       <textarea
         id="desc"
@@ -358,21 +391,27 @@ function Details({ value, onChange }: { value: string; onChange: (v: string) => 
         onChange={(e) => onChange(e.target.value)}
         rows={3}
         className="w-full rounded-2xl border-0 bg-canvas p-3 text-base ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-500 focus:outline-none"
-        placeholder="e.g. motorcycle crash near the toll plaza, one man not moving"
+        placeholder={t.detailsPlaceholder}
       />
       {voiceOk && (
         <div className="mt-3 flex items-center gap-2">
           <button
             onClick={toggleVoice}
+            aria-pressed={listening}
             className={`inline-flex items-center gap-2 rounded-full px-4 py-2 font-bold transition ${listening ? 'bg-red-600 text-white' : 'bg-brand-700 text-white'}`}
           >
-            {listening ? <MicOff className="size-5" /> : <Mic className="size-5" />}
-            {listening ? 'Stop' : 'Speak'}
+            {listening ? <MicOff className="size-5" aria-hidden /> : <Mic className="size-5" aria-hidden />}
+            {listening ? t.stop : t.speak}
           </button>
-          <div className="flex rounded-full bg-canvas p-1 text-xs font-bold">
+          <div className="flex rounded-full bg-canvas p-1 text-xs font-bold" role="group" aria-label="Speech language / بولنے کی زبان">
             {(['en-US', 'ur-PK'] as const).map((l) => (
-              <button key={l} onClick={() => setLang(l)} className={`rounded-full px-3 py-1.5 ${lang === l ? 'bg-white text-brand-800 shadow-soft' : 'text-slate-500'}`}>
-                {l === 'en-US' ? 'English' : 'اردو'}
+              <button
+                key={l}
+                aria-pressed={lang === l}
+                onClick={() => setLang(l)}
+                className={`rounded-full px-3 py-1.5 ${lang === l ? 'bg-white text-brand-800 shadow-soft' : 'text-slate-500'}`}
+              >
+                {l === 'en-US' ? 'English' : <span lang="ur">اردو</span>}
               </button>
             ))}
           </div>
@@ -382,18 +421,9 @@ function Details({ value, onChange }: { value: string; onChange: (v: string) => 
   );
 }
 
-const TIMELINE: { label: string; statuses: IncidentStatus[] }[] = [
-  { label: 'SOS received', statuses: ['REPORTED'] },
-  { label: 'Confirmed by a dispatcher', statuses: ['TRIAGED'] },
-  { label: 'Ambulance assigned', statuses: ['DISPATCHED'] },
-  { label: 'Ambulance on the way', statuses: ['EN_ROUTE'] },
-  { label: 'Crew with the patient', statuses: ['ON_SCENE'] },
-  { label: 'Going to hospital', statuses: ['TRANSPORTING', 'AT_HOSPITAL'] },
-  { label: 'With the hospital team', statuses: ['HANDED_OVER', 'CLOSED', 'NO_TRANSPORT'] },
-];
-
 /** Level 2 + 3, honestly: saved on the phone, SMS one tap away, auto-retry. */
 function OfflineCard({ sos }: { sos: ActiveSos }) {
+  const t = useT();
   const online = useOnline();
   const [smsOpened, setSmsOpened] = useState(false);
   const body = useMemo(() => buildSosSms(sos.clientId, sos.draft), [sos.clientId, sos.draft]);
@@ -403,15 +433,19 @@ function OfflineCard({ sos }: { sos: ActiveSos }) {
     <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-navy-700 to-navy-800 p-5 text-white shadow-lift">
       <div className="flex items-center gap-3">
         <span className="flex size-11 items-center justify-center rounded-2xl bg-white/10">
-          {online ? <Wifi className="size-5 text-amber-300" /> : <WifiOff className="size-5 text-red-300" />}
+          {online ? <Wifi className="size-5 text-amber-300" aria-hidden /> : <WifiOff className="size-5 text-red-300" aria-hidden />}
         </span>
-        <div>
-          <div className="text-lg font-extrabold">{online ? 'Connecting to GoldenHour…' : 'No internet connection'}</div>
-          <div className="text-xs text-blue-200">Reference {sos.refCode}</div>
+        <div role="status">
+          <div className="text-lg font-extrabold">{online ? t.connecting : t.noInternet}</div>
+          <div className="text-xs text-blue-200">
+            {t.reference} <span dir="ltr">{sos.refCode}</span>
+          </div>
         </div>
       </div>
       <p className="mt-3 text-sm text-blue-50">
-        Your SOS is <b>saved on this phone</b> and will send automatically as soon as there is a connection. Meanwhile, let’s help the patient.
+        {t.savedBefore}
+        <b>{t.savedBold}</b>
+        {t.savedAfter}
       </p>
 
       <a
@@ -422,10 +456,12 @@ function OfflineCard({ sos }: { sos: ActiveSos }) {
         }}
         className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-amber-400 py-4 text-lg font-extrabold text-slate-900 shadow-soft active:scale-[0.98]"
       >
-        <MessageSquare className="size-5" /> {smsOpened ? 'Open SMS again' : 'Send by SMS now'}
+        <MessageSquare className="size-5" aria-hidden /> {smsOpened ? t.openSmsAgain : t.sendSmsNow}
       </a>
-      <p className="mt-1.5 text-center text-[11px] text-blue-200">Needs only phone signal. Your SMS app opens with the message ready: just press Send.</p>
-      <code className="mt-3 block break-all rounded-xl bg-white/10 p-2.5 text-[11px] text-blue-100">{body}</code>
+      <p className="mt-1.5 text-center text-[11px] text-blue-200">{t.smsHint}</p>
+      <code dir="ltr" className="mt-3 block break-all rounded-xl bg-white/10 p-2.5 text-start text-[11px] text-blue-100">
+        {body}
+      </code>
       <button
         className="mt-3 w-full text-xs font-semibold text-blue-200 underline"
         onClick={async () => {
@@ -434,29 +470,33 @@ function OfflineCard({ sos }: { sos: ActiveSos }) {
           setRetrying(false);
         }}
       >
-        {retrying ? 'Trying…' : 'Try internet again'}
+        {retrying ? t.trying : t.tryInternet}
       </button>
     </div>
   );
 }
 
 function SentView({ sos, onDone }: { sos: ActiveSos; onDone: () => void }) {
+  const t = useT();
   const [status, setStatus] = useState<IncidentStatus>('REPORTED');
   const [priority, setPriority] = useState(sos.priority);
   const [units, setUnits] = useState<Dispatch[]>([]);
   const [ambs, setAmbs] = useState<Record<string, AmbulanceDto>>({});
+  const [cancelAsked, setCancelAsked] = useState(false);
 
+  useRooms(sos.incidentId ? [`incident:${sos.incidentId}`] : []);
   useEffect(() => {
     if (!sos.incidentId) return;
-    joinRooms([`incident:${sos.incidentId}`]);
     // Catch up after a reload / reconnect.
-    api<{ status: IncidentStatus; priority: ActiveSos['priority'] }>(`/track/${sos.incidentId}`)
+    api<{ status: IncidentStatus; priority: ActiveSos['priority']; cancelRequestedAt: string | null }>(`/track/${sos.incidentId}`)
       .then((t) => {
         setStatus(t.status);
         setPriority(t.priority);
+        setCancelAsked(!!t.cancelRequestedAt);
       })
       .catch(() => {});
-    api<Dispatch[]>(`/incidents/${sos.incidentId}/dispatches`).then(setUnits).catch(() => {});
+    // Public tracking view: only the unit(s) coming to this caller, never staff data.
+    api<Dispatch[]>(`/track/${sos.incidentId}/units`).then(setUnits).catch(() => {});
   }, [sos.incidentId]);
 
   const onDispatch = useCallback(
@@ -490,8 +530,20 @@ function SentView({ sos, onDone }: { sos: ActiveSos; onDone: () => void }) {
   // The unit coming to the caller: first one still driving to the scene, else the first assigned.
   const coming = units.find((u) => u.status === 'EN_ROUTE') ?? units.find((u) => u.status === 'ASSIGNED') ?? null;
   const comingAmb = coming ? ambs[coming.ambulanceId] : undefined;
-  const reached = Math.max(0, TIMELINE.findIndex((t) => t.statuses.includes(status)));
+  const reached = Math.max(0, TIMELINE_STATUSES.findIndex((s) => s.includes(status)));
   const finished = ['CLOSED', 'CANCELLED', 'HANDED_OVER', 'NO_TRANSPORT'].includes(status);
+  // A call that ended without reaching hospital must never look like it did.
+  const ended = status === 'CANCELLED' ? 'cancelled' : status === 'NO_TRANSPORT' ? 'no_transport' : null;
+
+  const askCancel = async () => {
+    if (!sos.incidentId || !confirm(t.confirmCancel)) return;
+    try {
+      await api(`/track/${sos.incidentId}/cancel`, { method: 'POST', json: { clientId: sos.clientId } });
+      setCancelAsked(true);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
 
   const topics = useMemo(() => {
     const { flags } = rulesTriage({ type: sos.draft.type, patientsCount: sos.draft.patientsCount, answers: sos.draft.answers, description: sos.draft.description });
@@ -500,42 +552,72 @@ function SentView({ sos, onDone }: { sos: ActiveSos; onDone: () => void }) {
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      {sos.incidentId ? (
+      {sos.incidentId && ended ? (
+        <div className="card p-5" role="status">
+          <div className="flex items-center gap-3">
+            <span className="icon-tile size-12 bg-slate-100 text-slate-500" aria-hidden>
+              <CheckCircle2 className="size-6" />
+            </span>
+            <div>
+              <div className="text-lg font-extrabold">{ended === 'cancelled' ? t.closedTitle : t.treatedTitle}</div>
+              <div className="text-sm text-slate-500">
+                {t.reference} <span className="font-mono font-bold" dir="ltr">{sos.refCode}</span>
+              </div>
+            </div>
+          </div>
+          <p className="mt-3 text-sm text-slate-600">
+            {ended === 'cancelled' ? t.noAmbulance : t.noTransport} {t.stillNeed1}{' '}
+            <a href={`tel:${EMERGENCY_NUMBER}`} className="font-bold text-red-700 underline">
+              {EMERGENCY_NUMBER}
+            </a>{' '}
+            {t.stillNeed2}
+          </p>
+        </div>
+      ) : sos.incidentId ? (
         <div className="card overflow-hidden">
           <div className="flex items-center gap-4 bg-gradient-to-br from-brand-600 to-brand-800 p-5 text-white">
-            <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-white/15">
+            <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-white/15" aria-hidden>
               <CheckCircle2 className="size-8" />
             </span>
             <div className="min-w-0">
-              <div className="text-xl font-extrabold">Help is being sent</div>
+              <div className="text-xl font-extrabold">{t.helpSent}</div>
               <div className="text-sm text-brand-100">
-                Reference <span className="font-mono font-bold text-white">{sos.refCode}</span>
-                {sos.via !== 'app' && ' · delivered after reconnecting'}
+                {t.reference} <span className="font-mono font-bold text-white" dir="ltr">{sos.refCode}</span>
+                {sos.via !== 'app' && t.deliveredLater}
               </div>
             </div>
             {priority && (
-              <div className="ml-auto">
+              <div className="ms-auto">
                 <PriorityBadge p={priority} />
               </div>
             )}
           </div>
-          {priority && <div className="px-5 pt-3 text-xs font-semibold text-slate-500">Priority: {PRIORITY_LABEL[priority]}</div>}
+          {priority && (
+            <div className="px-5 pt-3 text-xs font-semibold text-slate-500">
+              {t.priority}: {t.priorityLabel[priority]}
+            </div>
+          )}
+          {/* Announced to screen readers as the help gets closer. */}
+          <p className="sr-only" aria-live="polite">
+            {t.timeline[reached]}
+          </p>
           <ol className="space-y-0 px-5 py-3">
-            {TIMELINE.map((t, i) => {
+            {t.timeline.map((label, i) => {
               const done = i < reached || finished;
               const current = i === reached && !finished;
               return (
-                <li key={t.label} className="flex items-center gap-3 py-1.5">
+                <li key={label} className="flex items-center gap-3 py-1.5" aria-current={current ? 'step' : undefined}>
                   <span
+                    aria-hidden
                     className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
-                      done ? 'bg-brand-600 text-white' : current ? 'bg-white text-brand-700 ring-2 ring-brand-600' : 'bg-slate-100 text-slate-400'
+                      done ? 'bg-brand-600 text-white' : current ? 'bg-white text-brand-700 ring-2 ring-brand-600' : 'bg-slate-100 text-slate-500'
                     }`}
                   >
                     {done ? <Check className="size-3.5" strokeWidth={3} /> : i + 1}
                   </span>
-                  <span className={`text-sm ${current ? 'font-bold text-ink' : done ? 'font-medium text-slate-600' : 'text-slate-400'}`}>
-                    {t.label}
-                    {current && <span className="ml-2 inline-block size-2 animate-pulse rounded-full bg-brand-500 align-middle" />}
+                  <span className={`text-sm ${current ? 'font-bold text-ink' : done ? 'font-medium text-slate-600' : 'text-slate-500'}`}>
+                    {label}
+                    {current && <span className="ms-2 inline-block size-2 animate-pulse rounded-full bg-brand-500 align-middle" aria-hidden />}
                   </span>
                 </li>
               );
@@ -549,17 +631,19 @@ function SentView({ sos, onDone }: { sos: ActiveSos; onDone: () => void }) {
       {coming && (
         <div className="card overflow-hidden">
           <div className="flex items-center gap-3 p-4">
-            <span className="icon-tile size-11 bg-sky-50 text-sky-600">
+            <span className="icon-tile size-11 bg-sky-50 text-sky-600" aria-hidden>
               <Ambulance className="size-5.5" />
             </span>
             <div className="flex-1">
-              <div className="font-bold">{coming.callSign}</div>
-              <div className="text-xs text-slate-500">{coming.unitType === 'ALS' ? 'Paramedic ambulance' : 'Ambulance'}</div>
+              <div className="font-bold" dir="ltr">
+                {coming.callSign}
+              </div>
+              <div className="text-xs text-slate-500">{coming.unitType === 'ALS' ? t.paramedicAmbulance : t.ambulance}</div>
             </div>
-            <div className="text-right">
-              <div className="eyebrow">ETA</div>
+            <div className="text-end" aria-live="polite">
+              <div className="eyebrow">{t.eta}</div>
               <div className="text-2xl font-extrabold text-brand-700">
-                {coming.status === 'EN_ROUTE' && coming.etaMin != null ? `${Math.max(1, Math.ceil(coming.etaMin))} min` : '…'}
+                {coming.status === 'EN_ROUTE' && coming.etaMin != null ? `${Math.max(1, Math.ceil(coming.etaMin))} ${t.min}` : '…'}
               </div>
             </div>
           </div>
@@ -578,8 +662,19 @@ function SentView({ sos, onDone }: { sos: ActiveSos; onDone: () => void }) {
       <FirstAid topics={topics} autoSpeak />
 
       <div className="mt-2 flex flex-col items-center gap-3">
+        {sos.incidentId && !finished && (
+          cancelAsked ? (
+            <p className="text-center text-sm text-slate-500" role="status">
+              {t.dispatcherTold}
+            </p>
+          ) : (
+            <button className="text-sm font-semibold text-slate-500 underline" onClick={askCancel}>
+              {t.helpNoLonger}
+            </button>
+          )
+        )}
         <button className={finished ? 'btn-primary w-full py-3' : 'text-sm font-semibold text-slate-500 underline'} onClick={onDone}>
-          {finished ? 'Done' : 'Start a new SOS'}
+          {finished ? t.done : t.newSos}
         </button>
       </div>
     </div>

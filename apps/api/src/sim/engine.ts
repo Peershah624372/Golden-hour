@@ -117,14 +117,19 @@ async function tick() {
     .innerJoin(ambulances, eq(ambulances.id, dispatches.ambulanceId))
     .where(inArray(dispatches.status, [...ACTIVE_DISPATCH, 'HANDED_OVER']));
 
+  // In mass-casualty mode every unit carries its own patient (no BLS -> ALS hand-off).
+  const mciIds = new Set(
+    active.length ? (await db.select({ id: incidents.id }).from(incidents).where(eq(incidents.mciActive, true))).map((r) => r.id) : [],
+  );
   for (const { d, a } of active) {
     if (roomSize(`crew:${a.id}`) > 0) continue; // a real crew is driving this unit
+    const mci = mciIds.has(d.incidentId);
     const since = (t: Date | null) => (t ? (now - t.getTime()) / 1000 : 0);
     try {
       if (d.status === 'ASSIGNED' && since(d.assignedAt) >= AUTO.acceptAfterS) {
         await crewAction(a.id, 'ACCEPT', 'sim:autopilot');
         await crewAction(a.id, 'EN_ROUTE', 'sim:autopilot');
-      } else if (d.status === 'ON_SCENE' && since(d.onSceneAt) >= AUTO.prealertAfterS && !d.destinationHospitalId && !isBackupBls(d, a, active)) {
+      } else if (d.status === 'ON_SCENE' && since(d.onSceneAt) >= AUTO.prealertAfterS && !d.destinationHospitalId && (mci || !isBackupBls(d, a, active))) {
         // Simulated crew assessment: tag the patient from the triage priority (no invented vitals),
         // then let the Hospital Match + Pre-Alert agents warn the ER before transport starts.
         await autoTag(d.incidentId);
@@ -134,7 +139,7 @@ async function tick() {
         // Two-unit P1: the BLS stabilises, then clears once the ALS is on scene and takes the patient.
         const partners = active.filter((x) => x.d.incidentId === d.incidentId && x.d.id !== d.id);
         const alsPartner = partners.find((x) => x.a.type === 'ALS');
-        if (a.type === 'BLS' && alsPartner) {
+        if (a.type === 'BLS' && alsPartner && !mci) {
           if (['ON_SCENE', 'TRANSPORTING', 'AT_HOSPITAL', 'HANDED_OVER'].includes(alsPartner.d.status)) {
             await crewAction(a.id, 'AVAILABLE', 'sim:autopilot');
           }

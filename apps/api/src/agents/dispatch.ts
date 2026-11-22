@@ -10,6 +10,7 @@ import {
 import { db } from '../db/client';
 import { ambulances, dispatches, incidents } from '../db/schema';
 import { audit } from '../lib/audit';
+import { ConflictError } from '../lib/errors';
 import { newId } from '../lib/ids';
 import { toAmbulance } from '../lib/mappers';
 import { emit } from '../lib/realtime';
@@ -22,6 +23,9 @@ export const STALE_LOCATION_MS = 2 * 60_000;
 const UNCERTAIN_PENALTY_MIN = 3;
 /** P1: send both if the nearest ALS is more than this many minutes slower than the nearest BLS. */
 const ALS_GAP_MIN = 5;
+/** Mass casualty: same threshold as the MCI Coordinator (kept here to avoid an import cycle at load). */
+const MCI_PATIENTS = 5;
+const MCI_MAX_UNITS_AT_ONCE = 4;
 
 export const ACTIVE_DISPATCH = ['ASSIGNED', 'EN_ROUTE', 'ON_SCENE', 'TRANSPORTING', 'AT_HOSPITAL'] as const;
 
@@ -127,7 +131,11 @@ export async function dispatchOptions(incidentId: string): Promise<DispatchOptio
   const score = (o: DispatchOption) => o.etaMin + (o.uncertain ? UNCERTAIN_PENALTY_MIN : 0);
   options.sort((a, b) => score(a) - score(b));
 
-  const { suggestion, note } = suggest(inc.priority, options, free.length, alreadyOnIt.size);
+  const many = inc.mciActive || inc.patientsCount >= MCI_PATIENTS;
+  const { suggestion, note } =
+    many && ['P1', 'P2'].includes(inc.priority)
+      ? suggestMci(inc.patientsCount, inc.mciActive, options, alreadyOnIt.size)
+      : suggest(inc.priority, options, free.length, alreadyOnIt.size);
 
   // Pre-emption candidates: only for P1, when no free unit can reach in reasonable time.
   let preemption: DispatchOption[] = [];
@@ -137,6 +145,33 @@ export async function dispatchOptions(incidentId: string): Promise<DispatchOptio
   }
 
   return { incidentId, priority: inc.priority, options, suggestion, preemption, note };
+}
+
+/**
+ * Many patients: one unit is not enough. Send about one unit per two patients (2 to 4 at once,
+ * nearest ALS first for the critical ones); more can follow as crews tag patients.
+ */
+function suggestMci(
+  patients: number,
+  active: boolean,
+  options: DispatchOption[],
+  alreadyAssigned: number,
+): { suggestion: DispatchOptions['suggestion']; note: string | null } {
+  const want = Math.min(MCI_MAX_UNITS_AT_ONCE, Math.max(2, Math.ceil(patients / 2)));
+  const more = want - alreadyAssigned;
+  if (!options.length) return { suggestion: null, note: `Mass casualty: no free unit. Request units from neighbouring zones.` };
+  if (more <= 0) return { suggestion: null, note: `${alreadyAssigned} units assigned for ${patients} patients. Add more as crews tag patients.` };
+  const pick: DispatchOption[] = [];
+  const als = options.find((o) => o.type === 'ALS');
+  if (als && !alreadyAssigned) pick.push(als);
+  for (const o of options) if (pick.length < more && !pick.includes(o)) pick.push(o);
+  return {
+    suggestion: {
+      ambulanceIds: pick.map((o) => o.ambulanceId),
+      reason: `${active ? 'Mass-casualty mode' : `${patients} patients`}: send ${pick.length} ${alreadyAssigned ? 'more ' : ''}unit${pick.length > 1 ? 's' : ''}: ${pick.map((o) => `${o.callSign} ${Math.round(o.etaMin)} min`).join(', ')}`,
+    },
+    note: pick.length < more ? `Only ${pick.length} free unit(s): request backup from neighbouring zones.` : null,
+  };
 }
 
 function suggest(
@@ -217,6 +252,9 @@ async function preemptionCandidates(inc: typeof incidents.$inferSelect, bestFree
 export async function assignUnits(incidentId: string, ambulanceIds: string[], actor: string, reason?: string) {
   const [inc] = await db.select().from(incidents).where(eq(incidents.id, incidentId));
   if (!inc) throw new Error('Incident not found');
+  if (['CLOSED', 'CANCELLED', 'NO_TRANSPORT', 'MERGED', 'HANDED_OVER'].includes(inc.status)) {
+    throw new ConflictError(`#${inc.refCode} is ${inc.status.toLowerCase().replace('_', ' ')}: nothing to dispatch to`);
+  }
   const units = await db.select().from(ambulances).where(inArray(ambulances.id, ambulanceIds));
   if (units.length !== ambulanceIds.length) throw new Error('Unknown ambulance');
 
@@ -262,9 +300,15 @@ export async function assignUnits(incidentId: string, ambulanceIds: string[], ac
       });
       emit(['dispatch', 'admin'], EVENTS.alertEscalation, {
         kind: 'preempted',
+        severity: 'warning',
         incidentId: cur.i.id,
         message: `#${cur.i.refCode} re-queued: ${a.callSign} diverted to P1 #${inc.refCode}`,
       });
+      // The re-queued caller is told honestly (blueprint: "its caller informed").
+      void notifySmsReporters(
+        cur.i.id,
+        `GoldenHour #${cur.i.refCode}: your ambulance was redirected to a life-threatening emergency. You are still in the queue and a new unit is being arranged. If it gets worse, reply 1 or call ${process.env.EMERGENCY_NUMBER ?? '1122'}.`,
+      ).catch(() => {});
       await broadcastDispatch(cur.d.id);
       stopMovement(a.id);
     }

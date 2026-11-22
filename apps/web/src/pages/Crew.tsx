@@ -1,4 +1,4 @@
-import { Ambulance as AmbIcon, Building2, MapPin, Navigation, Power, Users } from 'lucide-react';
+import { AlertTriangle, Ambulance as AmbIcon, Building2, MapPin, Navigation, Power, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router';
 import {
@@ -9,6 +9,7 @@ import {
   type Ambulance,
   type CrewAction,
   type Dispatch,
+  type EscalationAlert,
   type Incident,
 } from '@gh/shared';
 import { CrewOnScene, HospitalCard } from '../components/CrewOnScene';
@@ -17,7 +18,7 @@ import { PriorityBadge } from '../components/ui';
 import { api } from '../lib/api';
 import { PRIORITY_STYLE, titleCase } from '../lib/format';
 import { getIdentity } from '../lib/identity';
-import { joinRooms, useSocketConnected, useSocketEvent } from '../lib/socket';
+import { useRooms, useSocketConnected, useSocketEvent } from '../lib/socket';
 import { beep, unlockAudio } from '../lib/sound';
 
 interface Assignment {
@@ -53,10 +54,10 @@ export default function CrewPage() {
     setData(await api<Assignment>(`/ambulances/${unitId}/assignment`));
   }, [unitId]);
 
+  useRooms(unitId ? [`crew:${unitId}`] : []);
   useEffect(() => {
     if (!unitId) return;
-    joinRooms([`crew:${unitId}`]);
-    void load();
+    load().catch(() => {});
   }, [unitId, load]);
 
   useSocketEvent<Dispatch>(
@@ -97,7 +98,25 @@ export default function CrewPage() {
     ),
   );
 
+  // Escalations aimed at this unit: re-alert (no Accept), not moving, rerouted, no hospital.
+  const [alert, setAlert] = useState<EscalationAlert | null>(null);
+  useSocketEvent<EscalationAlert>(
+    EVENTS.alertEscalation,
+    useCallback(
+      (a) => {
+        const forMe = a.ambulanceId ? a.ambulanceId === unitId : !!a.incidentId && a.incidentId === dataRef.current?.incident?.id;
+        if (!forMe || !['accept_timeout', 'stalled', 'rerouted', 'no_hospital', 'stood_down'].includes(a.kind)) return;
+        beep([988, 0, 988, 0, 988, 0, 988]);
+        if ('vibrate' in navigator) navigator.vibrate([500, 150, 500]);
+        setAlert(a);
+        if (a.kind === 'rerouted' || a.kind === 'stood_down') void load();
+      },
+      [unitId, load],
+    ),
+  );
+
   const tap = async (action: CrewAction) => {
+    setAlert(null);
     unlockAudio();
     setBusy(true);
     setError(null);
@@ -124,7 +143,7 @@ export default function CrewPage() {
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col bg-canvas" onPointerDown={unlockAudio}>
       <header className="flex items-center gap-3 bg-white px-4 py-3 shadow-[0_1px_0_rgb(15_23_42/0.05)]">
-        <Link to="/" className="icon-tile size-10 bg-sky-50 text-sky-600">
+        <Link to="/" className="icon-tile size-10 bg-sky-50 text-sky-600" aria-label="GoldenHour home">
           <AmbIcon className="size-5" />
         </Link>
         <div className="min-w-0 flex-1">
@@ -139,6 +158,19 @@ export default function CrewPage() {
           {connected ? 'Online' : 'Offline'}
         </span>
       </header>
+
+      <div role="alert" aria-live="assertive">
+      {alert && (
+        <button
+          onClick={() => setAlert(null)}
+          className={`flex items-start gap-2 px-4 py-3 text-left text-sm font-bold ${['rerouted', 'stood_down'].includes(alert.kind) ? 'bg-amber-400 text-slate-950' : 'bg-red-600 text-white'}`}
+        >
+          <AlertTriangle className="mt-0.5 size-5 shrink-0" />
+          <span className="flex-1">{alert.kind === 'accept_timeout' ? 'Dispatch is waiting: tap ACCEPT JOB now.' : alert.message}</span>
+          <X className="size-4 shrink-0 opacity-70" aria-label="Dismiss" />
+        </button>
+      )}
+      </div>
 
       {!d || !inc ? (
         <div className="flex flex-1 flex-col gap-4 p-4">
@@ -163,7 +195,7 @@ export default function CrewPage() {
       ) : (
         <div className="flex flex-1 flex-col gap-3 p-3">
           <div className="card overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 text-white" style={{ backgroundColor: PRIORITY_STYLE[inc.priority].hex }}>
+            <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: PRIORITY_STYLE[inc.priority].hex, color: PRIORITY_STYLE[inc.priority].onHex }}>
               <span className="text-2xl font-black">{inc.priority}</span>
               <span className="text-lg font-bold">{PRIORITY_LABEL[inc.priority]}</span>
               <span className="ml-auto rounded-full bg-white/20 px-2 py-0.5 font-mono text-sm">#{inc.refCode}</span>
@@ -174,6 +206,7 @@ export default function CrewPage() {
                 <span className="chip bg-canvas text-slate-600">
                   <Users className="size-3.5" /> {inc.patientsCount}
                 </span>
+                {inc.mciActive && <span className="chip bg-red-600 text-white">MASS CASUALTY</span>}
               </div>
               {inc.symptomFlags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">

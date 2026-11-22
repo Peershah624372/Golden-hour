@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { db, closeDb, type DB } from './client';
 import * as s from './schema';
 import { AMBULANCES, HOSPITALS, STATIONS, USERS } from './seedData';
+import { seedHistory } from './history';
 
 const ALL_TABLES = [
   'incidents', 'reports', 'patients', 'stations', 'ambulances', 'dispatches',
@@ -43,6 +44,9 @@ export async function seed(d: DB = db): Promise<void> {
     ...AMBULANCES.map((a) => ({ id: `u-crew-${a.id}`, name: `${a.callSign} crew`, role: 'crew' as const, ambulanceId: a.id })),
     ...HOSPITALS.map((h) => ({ id: `u-er-${h.id}`, name: `${h.name} ER`, role: 'er' as const, hospitalId: h.id })),
   ]);
+
+  // Simulated past week so the KPI dashboard has something to show (labelled as such).
+  if (process.env.SEED_HISTORY !== 'false') await seedHistory(d);
 
   await d.insert(s.auditLog).values({ actor: 'system', action: 'seed', entity: 'system', entityId: 'demo', reason: 'Demo data loaded' });
 }

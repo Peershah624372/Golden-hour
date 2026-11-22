@@ -1,12 +1,16 @@
 import { Router } from 'express';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { INCIDENT_STATUSES, PRIORITIES, isDowngrade } from '@gh/shared';
+import { EVENTS, INCIDENT_STATUSES, PRIORITIES, isDowngrade, type EscalationAlert } from '@gh/shared';
+import { emit } from '../lib/realtime';
+import { closeIncident } from '../agents/crew';
+import { activeDispatches } from '../agents/dispatch';
 import { broadcastIncident } from '../agents/intake';
 import { db } from '../db/client';
 import { incidents, reports } from '../db/schema';
 import { audit } from '../lib/audit';
 import { toIncident } from '../lib/mappers';
+import { DISPATCH_ROLES, incidentAccess, staff } from '../lib/auth';
 import { HttpError, actorOf, h, parse } from './http';
 
 export const incidentsRouter = Router();
@@ -16,6 +20,7 @@ const ACTIVE = INCIDENT_STATUSES.filter((s) => !['CLOSED', 'MERGED', 'CANCELLED'
 /** GET /api/incidents?status=active|all */
 incidentsRouter.get(
   '/incidents',
+  staff(...DISPATCH_ROLES),
   h(async (req, res) => {
     const all = req.query.status === 'all';
     const rows = await db
@@ -30,6 +35,7 @@ incidentsRouter.get(
 
 incidentsRouter.get(
   '/incidents/:id',
+  incidentAccess(),
   h(async (req, res) => {
     const id = String(req.params.id);
     const [row] = await db.select().from(incidents).where(eq(incidents.id, id));
@@ -48,7 +54,68 @@ incidentsRouter.get(
   h(async (req, res) => {
     const [row] = await db.select().from(incidents).where(eq(incidents.id, String(req.params.id)));
     if (!row) throw new HttpError(404, 'Not found');
-    res.json({ id: row.id, refCode: row.refCode, status: row.status, priority: row.priority, type: row.type });
+    res.json({ id: row.id, refCode: row.refCode, status: row.status, priority: row.priority, type: row.type, cancelRequestedAt: row.cancelRequestedAt?.toISOString() ?? null });
+  }),
+);
+
+/**
+ * GET /api/track/:id/units: the ambulance(s) coming to this caller, and nothing else
+ * (no patient data, no other incidents). The random incident id is the caller's key.
+ */
+incidentsRouter.get(
+  '/track/:id/units',
+  h(async (req, res) => {
+    const id = String(req.params.id);
+    const [row] = await db.select({ id: incidents.id }).from(incidents).where(eq(incidents.id, id));
+    if (!row) throw new HttpError(404, 'Not found');
+    const units = await activeDispatches(id);
+    res.json(
+      units.map((d) => ({
+        id: d.id,
+        incidentId: d.incidentId,
+        ambulanceId: d.ambulanceId,
+        callSign: d.callSign,
+        unitType: d.unitType,
+        status: d.status,
+        etaMin: d.etaMin,
+        etaAt: d.etaAt,
+        route: d.status === 'EN_ROUTE' ? d.route : null, // the way to the caller, not to the hospital
+      })),
+    );
+  }),
+);
+
+/**
+ * POST /api/track/:id/cancel  { clientId }: the caller says help is no longer needed.
+ * Only the phone that sent this SOS can ask (it proves it with its private clientId).
+ * Nothing is stood down automatically (wrong button, coercion, a second patient...):
+ * the dispatcher is alerted and decides.
+ */
+incidentsRouter.post(
+  '/track/:id/cancel',
+  h(async (req, res) => {
+    const { clientId } = parse(z.object({ clientId: z.string().min(4).max(64) }), req.body);
+    const id = String(req.params.id);
+    const [row] = await db.select().from(incidents).where(eq(incidents.id, id));
+    if (!row) throw new HttpError(404, 'Not found');
+    const own = row.clientId === clientId || (await db.select({ id: reports.id }).from(reports).where(and(eq(reports.incidentId, id), eq(reports.clientId, clientId)))).length > 0;
+    if (!own) throw new HttpError(403, 'Only the phone that sent this SOS can cancel it');
+    if (['CLOSED', 'CANCELLED', 'NO_TRANSPORT', 'MERGED'].includes(row.status)) throw new HttpError(409, 'This SOS is already closed');
+    if (row.cancelRequestedAt) return res.json({ ok: true, cancelRequestedAt: row.cancelRequestedAt.toISOString() });
+
+    const [updated] = await db.update(incidents).set({ cancelRequestedAt: new Date() }).where(eq(incidents.id, id)).returning();
+    await audit({ actor: 'caller', action: 'caller_cancel_request', entity: 'incident', entityId: id, reason: 'Caller: help no longer needed' });
+    broadcastIncident(updated);
+    emit(['dispatch', 'admin'], EVENTS.alertEscalation, {
+      kind: 'caller_cancel',
+      severity: 'warning',
+      incidentId: id,
+      message:
+        row.reportCount > 1
+          ? `One of ${row.reportCount} people who reported #${row.refCode} says help is no longer needed. Check with the others before standing units down.`
+          : `Caller on #${row.refCode} says help is no longer needed. Confirm before standing units down.`,
+    } satisfies EscalationAlert);
+    res.json({ ok: true, cancelRequestedAt: updated.cancelRequestedAt!.toISOString() });
   }),
 );
 
@@ -63,6 +130,7 @@ const PrioritySchema = z.object({
  */
 incidentsRouter.patch(
   '/incidents/:id/priority',
+  staff(...DISPATCH_ROLES),
   h(async (req, res) => {
     const id = String(req.params.id);
     const body = parse(PrioritySchema, req.body);
@@ -101,22 +169,19 @@ incidentsRouter.patch(
 
 const StatusSchema = z.object({
   status: z.enum(['CANCELLED', 'CLOSED', 'NO_TRANSPORT']),
-  reason: z.string().min(2).max(500),
+  reason: z.string().trim().min(2, 'A reason is required').max(500),
 });
 
 /** Close-out statuses set by the dispatcher (reason always logged). */
 incidentsRouter.patch(
   '/incidents/:id/status',
+  staff(...DISPATCH_ROLES),
   h(async (req, res) => {
     const id = String(req.params.id);
     const body = parse(StatusSchema, req.body);
-    const [updated] = await db
-      .update(incidents)
-      .set({ status: body.status, closedAt: new Date() })
-      .where(eq(incidents.id, id))
-      .returning();
-    if (!updated) throw new HttpError(404, 'Incident not found');
-    await audit({ actor: actorOf(req), action: `set_${body.status.toLowerCase()}`, entity: 'incident', entityId: id, reason: body.reason });
-    res.json(broadcastIncident(updated));
+    const [cur] = await db.select({ id: incidents.id }).from(incidents).where(eq(incidents.id, id));
+    if (!cur) throw new HttpError(404, 'Incident not found');
+    // Stands down every unit, withdraws pre-alerts and tells SMS reporters (409 if a patient is on board).
+    res.json(toIncident(await closeIncident(id, body.status, body.reason.trim(), actorOf(req))));
   }),
 );

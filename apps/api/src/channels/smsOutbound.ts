@@ -1,6 +1,7 @@
 import { desc, eq } from 'drizzle-orm';
 import { db } from '../db/client';
 import { messages } from '../db/schema';
+import { encryptText } from '../lib/crypto';
 import { newId } from '../lib/ids';
 import { emit } from '../lib/realtime';
 
@@ -39,7 +40,7 @@ export async function sendSms(to: string, body: string, opts: { incidentId?: str
     channel: 'sms',
     recipientRole: opts.role ?? 'citizen',
     address: to,
-    body: text,
+    body: encryptText(text),
     deliveredAt: delivered ? new Date() : null,
   });
   emit(['dispatch', 'admin'], 'sms:outbound', { to, body: text, incidentId: opts.incidentId ?? null, live: delivered, at: new Date().toISOString() });

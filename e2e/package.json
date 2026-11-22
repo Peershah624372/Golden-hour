@@ -1,0 +1,14 @@
+{
+  "name": "goldenhour-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser end-to-end tests and WCAG 2.1 AA audit (Playwright + axe-core). Uses an installed Edge or Chrome; downloads no browser.",
+  "scripts": {
+    "test": "node run.mjs",
+    "a11y": "node a11y.mjs"
+  },
+  "devDependencies": {
+    "axe-core": "4.10.2",
+    "playwright-core": "1.49.1"
+  }
+}

@@ -2,6 +2,7 @@ import { HeartPulse, Info, Phone, Siren, Stethoscope } from 'lucide-react';
 import { NavLink } from 'react-router';
 import { PRIORITY_LABEL, type Channel, type Priority } from '@gh/shared';
 import { EMERGENCY_NUMBER, PRIORITY_STYLE } from '../lib/format';
+import { useT } from '../lib/i18n';
 
 /** Brand mark: heartbeat in a teal tile. */
 export function Logo({ size = 'md', tone = 'dark', sub }: { size?: 'sm' | 'md' | 'lg'; tone?: 'dark' | 'light'; sub?: string }) {
@@ -44,6 +45,7 @@ export function ChannelBadge({ c }: { c: Channel }) {
 
 /** Always visible on citizen screens: GoldenHour supports, never replaces, the national number. */
 export function CallEmergency({ compact = false }: { compact?: boolean }) {
+  const t = useT();
   return (
     <a
       href={`tel:${EMERGENCY_NUMBER}`}
@@ -52,7 +54,7 @@ export function CallEmergency({ compact = false }: { compact?: boolean }) {
       }`}
     >
       <Phone className={compact ? 'size-3.5' : 'size-4'} aria-hidden />
-      Call {EMERGENCY_NUMBER}
+      {t.call(EMERGENCY_NUMBER)}
     </a>
   );
 }
@@ -73,18 +75,19 @@ export function SimBanner({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
 
 /** Citizen bottom tab bar (SOS, First aid, Call). */
 export function CitizenTabBar() {
+  const t = useT();
   const item = ({ isActive }: { isActive: boolean }) =>
-    `flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold ${isActive ? 'text-brand-700' : 'text-slate-400'}`;
+    `flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold ${isActive ? 'text-brand-700' : 'text-slate-500'}`;
   return (
-    <nav className="sticky bottom-0 z-[1100] mt-auto flex border-t border-slate-100 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+    <nav aria-label="GoldenHour" className="sticky bottom-0 z-1100 mt-auto flex border-t border-slate-100 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
       <NavLink to="/sos" className={item}>
-        <Siren className="size-5" /> SOS
+        <Siren className="size-5" aria-hidden /> {t.tabSos}
       </NavLink>
       <NavLink to="/first-aid" className={item}>
-        <Stethoscope className="size-5" /> First aid
+        <Stethoscope className="size-5" aria-hidden /> {t.tabFirstAid}
       </NavLink>
-      <a href={`tel:${EMERGENCY_NUMBER}`} className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold text-red-600">
-        <Phone className="size-5" /> Call {EMERGENCY_NUMBER}
+      <a href={`tel:${EMERGENCY_NUMBER}`} className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold text-red-700">
+        <Phone className="size-5" aria-hidden /> {t.call(EMERGENCY_NUMBER)}
       </a>
     </nav>
   );

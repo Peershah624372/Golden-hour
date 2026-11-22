@@ -1,8 +1,10 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
+import { HISTORY_MARK } from '../db/history';
 import { EVENTS, INCIDENT_TYPE_LABEL, PRIORITY_LABEL, SYMPTOM_LABEL, type StartTag } from '@gh/shared';
 import { db } from '../db/client';
 import { ambulances, dispatches, handovers, hospitals, incidents, messages, patients } from '../db/schema';
 import { audit } from '../lib/audit';
+import { decryptText, encryptText } from '../lib/crypto';
 import { newId } from '../lib/ids';
 import { llmEnabled, llmJson } from '../lib/llm';
 import { emit } from '../lib/realtime';
@@ -68,7 +70,7 @@ export async function buildAtmist(incidentId: string, patientId: string | null):
   if (v.bp) signs.push(`BP ${v.bp}`);
   if (!signs.length) signs.push(...inc.symptomFlags.map((f) => SYMPTOM_LABEL[f].toLowerCase()));
 
-  const mechanism = [INCIDENT_TYPE_LABEL[inc.type], inc.summary ?? inc.description ?? null].filter(Boolean).join(': ');
+  const mechanism = [INCIDENT_TYPE_LABEL[inc.type], inc.summary ?? decryptText(inc.description) ?? null].filter(Boolean).join(': ');
   return {
     A: `${age}, ${sex}`,
     T: clock(inc.createdAt),
@@ -134,7 +136,8 @@ export async function handoverDto(id: string): Promise<HandoverDto | null> {
 export async function broadcastHandover(id: string, event: string = EVENTS.handoverRequest) {
   const dto = await handoverDto(id);
   if (!dto) return null;
-  const rooms = [`er:${dto.hospitalId}`, 'dispatch', 'admin', `incident:${dto.incidentId}`];
+  // Not the caller's incident room: the ATMIST is patient data, and the caller may be a bystander.
+  const rooms = [`er:${dto.hospitalId}`, 'dispatch', 'admin'];
   const [d] = dto.dispatchId ? await db.select().from(dispatches).where(eq(dispatches.id, dto.dispatchId)) : [];
   if (d) rooms.push(`crew:${d.ambulanceId}`);
   emit(rooms, event, dto);
@@ -145,6 +148,9 @@ export async function broadcastHandover(id: string, event: string = EVENTS.hando
 async function patientForDispatch(incidentId: string, dispatchId: string) {
   const pts = await db.select().from(patients).where(eq(patients.incidentId, incidentId));
   if (!pts.length) return null;
+  // Mass-casualty plan: the MCI Coordinator already decided who rides in this unit.
+  const planned = pts.find((p) => p.dispatchId === dispatchId);
+  if (planned) return planned.id;
   const taken = new Set(
     (await db.select().from(handovers).where(eq(handovers.incidentId, incidentId)))
       .filter((h) => h.dispatchId !== dispatchId && h.patientId && h.decision !== 'DECLINED' && h.decision !== 'TIMEOUT')
@@ -204,7 +210,7 @@ export async function sendPreAlert(dispatchId: string, hospitalId: string, actor
     channel: 'sms',
     recipientRole: 'er',
     address: hosp.dutyPhone,
-    body: `GH PRE-ALERT #${inc.refCode} ${inc.priority} ${amb?.callSign ?? ''} ETA ${Math.round(eta ?? 0)}m | A:${atmist.A} | M:${atmist.M.slice(0, 40)} | S:${atmist.S.slice(0, 40)}`.slice(0, 300),
+    body: encryptText(`GH PRE-ALERT #${inc.refCode} ${inc.priority} ${amb?.callSign ?? ''} ETA ${Math.round(eta ?? 0)}m | A:${atmist.A} | M:${atmist.M.slice(0, 40)} | S:${atmist.S.slice(0, 40)}`.slice(0, 300)),
   });
   await audit({
     actor,
@@ -306,7 +312,14 @@ export async function handoversFor(filter: { hospitalId?: string; incidentId?: s
   const rows = await db
     .select({ id: handovers.id })
     .from(handovers)
-    .where(filter.hospitalId ? eq(handovers.hospitalId, filter.hospitalId) : eq(handovers.incidentId, filter.incidentId!))
+    .innerJoin(incidents, eq(incidents.id, handovers.incidentId))
+    .where(
+      and(
+        filter.hospitalId ? eq(handovers.hospitalId, filter.hospitalId) : eq(handovers.incidentId, filter.incidentId!),
+        // The seeded analytics history never shows up on a live ER board.
+        or(isNull(incidents.reporterHash), ne(incidents.reporterHash, HISTORY_MARK)),
+      ),
+    )
     .orderBy(desc(handovers.sentAt))
     .limit(50);
   const out: HandoverDto[] = [];

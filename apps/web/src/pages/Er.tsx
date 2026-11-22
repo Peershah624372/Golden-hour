@@ -7,7 +7,7 @@ import { api } from '../lib/api';
 import { UNIT_LABEL, clockTime, titleCase, useNow } from '../lib/format';
 import { ATMIST_ROWS, TAG_LABEL, TAG_STYLE, type Handover } from '../lib/handover';
 import { getIdentity } from '../lib/identity';
-import { joinRooms, useSocketConnected, useSocketEvent } from '../lib/socket';
+import { useRooms, useSocketConnected, useSocketEvent } from '../lib/socket';
 import { beep, unlockAudio } from '../lib/sound';
 
 const STATUS_STYLE: Record<HospitalUnitStatus, string> = {
@@ -32,10 +32,10 @@ export default function ErPage() {
     setAlerts(b.handovers);
   }, [hospitalId]);
 
+  useRooms(hospitalId ? [`er:${hospitalId}`] : []);
   useEffect(() => {
     if (!hospitalId) return;
-    joinRooms([`er:${hospitalId}`]);
-    void load();
+    load().catch(() => {});
   }, [hospitalId, load]);
 
   const upsert = useCallback(
@@ -83,7 +83,7 @@ export default function ErPage() {
   return (
     <div className="flex min-h-full flex-col bg-canvas" onPointerDown={unlockAudio}>
       <header className="flex flex-wrap items-center gap-3 bg-white px-4 py-3 shadow-[0_1px_0_rgb(15_23_42/0.06)]">
-        <Link to="/" className="icon-tile size-10">
+        <Link to="/" className="icon-tile size-10" aria-label="GoldenHour home">
           <Hospital className="size-5" />
         </Link>
         <div>

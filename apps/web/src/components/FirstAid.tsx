@@ -1,18 +1,82 @@
 import { ChevronLeft, ChevronRight, Pause, Stethoscope, Volume2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GUIDES, type GuideLang, type GuideTopic } from '@gh/shared';
+import { getLang } from '../lib/i18n';
 
 const LANG_TAG: Record<GuideLang, string> = { en: 'en-US', ur: 'ur-PK' };
 
-function pickVoice(lang: GuideLang): SpeechSynthesisVoice | null {
-  const voices = speechSynthesis.getVoices();
+/** The coach's own controls follow the guide language, so an Urdu reader never meets English buttons. */
+const UI: Record<GuideLang, Record<'title' | 'sub' | 'read' | 'pause' | 'noVoice' | 'prev' | 'next' | 'cprStart' | 'cprPush', string>> = {
+  en: {
+    title: 'First-aid coach',
+    sub: 'Spoken step by step · works offline',
+    read: 'Read aloud',
+    pause: 'Pause voice',
+    noVoice: 'No voice on this device',
+    prev: 'Previous step',
+    next: 'Next step',
+    cprStart: 'Start CPR beat',
+    cprPush: 'Push to the beat',
+  },
+  ur: {
+    title: 'ابتدائی طبی امداد',
+    sub: 'قدم بہ قدم آواز میں · بغیر انٹرنیٹ',
+    read: 'آواز میں سنیں',
+    pause: 'آواز روکیں',
+    noVoice: 'اس فون میں اردو آواز نہیں',
+    prev: 'پچھلا قدم',
+    next: 'اگلا قدم',
+    cprStart: 'سی پی آر کی تال شروع کریں',
+    cprPush: 'تال کے ساتھ دبائیں',
+  },
+};
+const HAS_TTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+/**
+ * A voice that can really speak this language, or null. Never "any voice": an English
+ * voice handed Urdu script plays silence and reports success, which looks like a frozen coach.
+ */
+function pickVoice(voices: SpeechSynthesisVoice[], lang: GuideLang): SpeechSynthesisVoice | null {
   const prefix = lang === 'ur' ? 'ur' : 'en';
+  const mine = voices.filter((v) => v.lang.toLowerCase().replace('_', '-').startsWith(prefix));
   // Prefer on-device voices: they keep working with no connection.
-  return (
-    voices.find((v) => v.lang.toLowerCase().startsWith(prefix) && v.localService) ??
-    voices.find((v) => v.lang.toLowerCase().startsWith(prefix)) ??
-    null
-  );
+  return mine.find((v) => v.localService) ?? mine[0] ?? null;
+}
+
+/** Browsers load voices asynchronously: the first getVoices() call is often empty. */
+function waitForVoices(timeoutMs = 2000): Promise<SpeechSynthesisVoice[]> {
+  const now = speechSynthesis.getVoices();
+  if (now.length) return Promise.resolve(now);
+  return new Promise((resolve) => {
+    const done = () => {
+      speechSynthesis.removeEventListener('voiceschanged', done);
+      clearTimeout(t);
+      resolve(speechSynthesis.getVoices());
+    };
+    const t = setTimeout(done, timeoutMs);
+    speechSynthesis.addEventListener('voiceschanged', done);
+  });
+}
+
+function useVoices() {
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(() => (HAS_TTS ? speechSynthesis.getVoices() : []));
+  const [loaded, setLoaded] = useState(() => HAS_TTS && speechSynthesis.getVoices().length > 0);
+  useEffect(() => {
+    if (!HAS_TTS) return;
+    let alive = true;
+    const update = () => alive && setVoices(speechSynthesis.getVoices());
+    speechSynthesis.addEventListener('voiceschanged', update);
+    void waitForVoices().then((v) => {
+      if (!alive) return;
+      setVoices(v);
+      setLoaded(true);
+    });
+    return () => {
+      alive = false;
+      speechSynthesis.removeEventListener('voiceschanged', update);
+    };
+  }, []);
+  return { voices, loaded };
 }
 
 /** CPR metronome: a click at the compression rate (no audio files, works offline). */
@@ -54,28 +118,54 @@ function useMetronome(bpm: number | undefined, on: boolean) {
 export function FirstAid({ topics, autoSpeak = false, dark = false }: { topics: GuideTopic[]; autoSpeak?: boolean; dark?: boolean }) {
   const [topic, setTopic] = useState<GuideTopic>(topics[0] ?? 'general');
   const [step, setStep] = useState(0);
-  const [lang, setLang] = useState<GuideLang>(() => (navigator.language.startsWith('ur') ? 'ur' : 'en'));
+  // Starts in the language the person chose for the app (or their phone's language).
+  const [lang, setLang] = useState<GuideLang>(() => getLang());
   const [speaking, setSpeaking] = useState(false);
   const [metronome, setMetronome] = useState(false);
-  const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  /** Why the voice can't play right now (shown instead of a silent "Pause voice"). */
+  const [voiceProblem, setVoiceProblem] = useState<'no-voice' | 'failed' | null>(null);
+  const canSpeak = HAS_TTS;
+  const { voices, loaded } = useVoices();
   const guide = GUIDES[topic];
   const steps = guide.steps[lang];
   const speakingRef = useRef(false);
   const beat = useMetronome(guide.metronomeBpm, metronome);
+  // Known up front once the voice list has loaded, so the button can say so before anyone taps.
+  const noVoice = canSpeak && loaded && !pickVoice(voices, lang);
 
   useEffect(() => {
     if (topics.length && !topics.includes(topic)) setTopic(topics[0]);
   }, [topics, topic]);
 
+  const halt = useCallback(() => {
+    speakingRef.current = false;
+    setSpeaking(false);
+  }, []);
+
   const say = useCallback(
-    (i: number) => {
+    async (i: number) => {
       if (!canSpeak) return;
+      const voice = pickVoice(await waitForVoices(), lang);
+      if (!speakingRef.current) return;
+      if (!voice) {
+        halt();
+        setVoiceProblem('no-voice');
+        return;
+      }
       speechSynthesis.cancel();
+      // Chrome drops an utterance queued in the same tick as cancel(): give it a moment.
+      await new Promise((r) => setTimeout(r, 80));
+      if (!speakingRef.current) return;
       const u = new SpeechSynthesisUtterance(`${i === 0 ? guide.title[lang] + '. ' : ''}${guide.steps[lang][i]}`);
-      u.lang = LANG_TAG[lang];
-      const v = pickVoice(lang);
-      if (v) u.voice = v;
+      u.lang = voice.lang || LANG_TAG[lang];
+      u.voice = voice;
       u.rate = 0.92;
+      u.onerror = (e) => {
+        if (e.error === 'interrupted' || e.error === 'canceled') return; // we stopped it ourselves
+        // e.g. an online-only Urdu voice with no connection: say so instead of hanging.
+        halt();
+        setVoiceProblem('failed');
+      };
       u.onend = () => {
         if (!speakingRef.current) return;
         // Read the next step after a short pause; loop CPR steps until stopped.
@@ -88,20 +178,29 @@ export function FirstAid({ topics, autoSpeak = false, dark = false }: { topics: 
             return;
           }
           setStep(next);
-          say(next);
+          void say(next);
         }, 1500);
       };
       speechSynthesis.speak(u);
     },
-    [canSpeak, guide, lang],
+    [canSpeak, guide, lang, halt],
   );
 
   const start = useCallback(() => {
+    setVoiceProblem(null);
     speakingRef.current = true;
     setSpeaking(true);
     if (guide.metronomeBpm) setMetronome(true);
-    say(step);
+    void say(step);
   }, [say, step, guide.metronomeBpm]);
+
+  // "Listen in English" switches language first; start once the new language is in place.
+  const [startAfterSwitch, setStartAfterSwitch] = useState(false);
+  useEffect(() => {
+    if (!startAfterSwitch) return;
+    setStartAfterSwitch(false);
+    start();
+  }, [startAfterSwitch, start]);
 
   const stop = () => {
     speakingRef.current = false;
@@ -135,8 +234,12 @@ export function FirstAid({ topics, autoSpeak = false, dark = false }: { topics: 
           <Stethoscope className="size-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="font-extrabold leading-tight">First-aid coach</div>
-          <div className="text-[11px] font-medium text-slate-500">Spoken step by step · works offline</div>
+          <div className="font-extrabold leading-tight" lang={lang}>
+            {UI[lang].title}
+          </div>
+          <div className="text-[11px] font-medium text-slate-500" lang={lang}>
+            {UI[lang].sub}
+          </div>
         </div>
         <div className="flex rounded-full bg-canvas p-1 text-xs font-bold">
           {(['en', 'ur'] as const).map((l) => (
@@ -144,6 +247,7 @@ export function FirstAid({ topics, autoSpeak = false, dark = false }: { topics: 
               key={l}
               onClick={() => {
                 stop();
+                setVoiceProblem(null);
                 setLang(l);
               }}
               className={`rounded-full px-2.5 py-1 ${lang === l ? 'bg-white text-brand-800 shadow-soft' : 'text-slate-500'}`}
@@ -195,14 +299,48 @@ export function FirstAid({ topics, autoSpeak = false, dark = false }: { topics: 
             dir="ltr"
           >
             <span className={`inline-block size-5 rounded-full bg-current transition-transform duration-75 ${beat ? 'scale-125' : 'scale-75'}`} />
-            {metronome ? `Push to the beat (${guide.metronomeBpm}/min)` : 'Start CPR beat'}
+            <span lang={lang}>{metronome ? `${UI[lang].cprPush} (${guide.metronomeBpm}/min)` : UI[lang].cprStart}</span>
           </button>
         )}
       </div>
 
+      {canSpeak && (noVoice || voiceProblem) && (
+        <div className="mx-4 mt-3 rounded-2xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200" dir="ltr" role="status">
+          <div className="font-bold">
+            {voiceProblem === 'failed'
+              ? `The ${lang === 'ur' ? 'Urdu' : 'English'} voice could not play${lang === 'ur' ? ' (on some devices it needs internet)' : ''}.`
+              : `This device has no ${lang === 'ur' ? 'Urdu' : 'English'} voice, so it cannot read these steps aloud.`}
+          </div>
+          <div className="mt-0.5 text-amber-800">Follow the steps on screen{lang === 'ur' ? ', or listen in English.' : '.'}</div>
+          {lang === 'ur' && (
+            <>
+              <button
+                onClick={() => {
+                  stop();
+                  setVoiceProblem(null);
+                  setLang('en');
+                  setStartAfterSwitch(true);
+                }}
+                className="mt-2 rounded-xl bg-amber-400 px-3 py-1.5 text-sm font-extrabold text-slate-900"
+              >
+                Listen in English
+              </button>
+              <details className="mt-2 text-xs text-amber-800">
+                <summary className="cursor-pointer font-semibold">How to add an Urdu voice</summary>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  <li>Android: Settings › Text-to-speech › Google › Install voice data › Urdu (Pakistan)</li>
+                  <li>Windows: Settings › Time &amp; language › Speech › Add voices › Urdu</li>
+                  <li>Or open GoldenHour in Microsoft Edge, which has online Urdu voices</li>
+                </ul>
+              </details>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center gap-2 p-4" dir="ltr">
         <button
-          aria-label="Previous step"
+          aria-label={UI[lang].prev}
           disabled={step === 0}
           onClick={() => setStep((s) => Math.max(0, s - 1))}
           className="btn-ghost size-12 shrink-0 disabled:opacity-30"
@@ -210,13 +348,13 @@ export function FirstAid({ topics, autoSpeak = false, dark = false }: { topics: 
           <ChevronLeft className="size-5" />
         </button>
         {canSpeak && (
-          <button onClick={speaking ? stop : start} className="btn-primary flex-1 py-3">
+          <button onClick={speaking ? stop : start} disabled={noVoice && !speaking} className="btn-primary flex-1 py-3">
             {speaking ? <Pause className="size-5" /> : <Volume2 className="size-5" />}
-            {speaking ? 'Pause voice' : 'Read aloud'}
+            <span lang={lang}>{speaking ? UI[lang].pause : noVoice ? UI[lang].noVoice : UI[lang].read}</span>
           </button>
         )}
         <button
-          aria-label="Next step"
+          aria-label={UI[lang].next}
           disabled={step >= steps.length - 1}
           onClick={() => setStep((s) => Math.min(steps.length - 1, s + 1))}
           className="btn-ghost size-12 shrink-0 disabled:opacity-30"

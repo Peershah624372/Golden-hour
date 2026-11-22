@@ -40,6 +40,16 @@ export const incidents = pgTable('incidents', {
   reporterHash: text('reporter_hash'),
   mergedInto: text('merged_into'),
   reportCount: integer('report_count').notNull().default(1),
+  /** MCI Coordinator: why it suggests mass-casualty mode (null = no suggestion). */
+  mciSuggestion: text('mci_suggestion'),
+  /** Mass-casualty mode, confirmed by a shift lead. */
+  mciActive: boolean('mci_active').notNull().default(false),
+  mciActivatedAt: ts('mci_activated_at'),
+  mciActivatedBy: text('mci_activated_by'),
+  /** A shift lead decided the suggestion was not a mass-casualty incident. */
+  mciDismissedAt: ts('mci_dismissed_at'),
+  /** The caller said help is no longer needed (a dispatcher still decides). */
+  cancelRequestedAt: ts('cancel_requested_at'),
   createdAt: ts('created_at').notNull().defaultNow(),
   triagedAt: ts('triaged_at'),
   dispatchedAt: ts('dispatched_at'),
@@ -54,6 +64,8 @@ export const incidents = pgTable('incidents', {
 export const reports = pgTable('reports', {
   id: text('id').primaryKey(),
   incidentId: text('incident_id').notNull(),
+  /** The phone's SOS id: a retried report that was merged must not be counted twice. */
+  clientId: text('client_id').unique(),
   channel: text('channel').$type<Channel>().notNull(),
   rawText: text('raw_text'),
   lat: doublePrecision('lat'),
@@ -73,6 +85,9 @@ export const patients = pgTable('patients', {
   injuries: text('injuries'),
   treatment: text('treatment'),
   requiredUnit: text('required_unit').$type<HospitalUnitType>(),
+  /** MCI distribution: which unit carries this patient, and where to. */
+  dispatchId: text('dispatch_id'),
+  destinationHospitalId: text('destination_hospital_id'),
 });
 
 export const stations = pgTable('stations', {

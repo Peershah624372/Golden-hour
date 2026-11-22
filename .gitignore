@@ -4,6 +4,10 @@ dist/
 .env.local
 *.log
 .pglite/
+.e2e-db/
+e2e/shots/
+e2e/a11y-report.json
+e2e/package-lock.json
 .DS_Store
 .vscode/*
 !.vscode/extensions.json

@@ -23,6 +23,16 @@
   --color-navy-700: #163d6e;
   --color-navy-800: #102c51;
 
+  /*
+   * Accessibility (WCAG 2.1 AA, checked with axe-core): muted text and white-on-colour
+   * badges must reach 4.5:1. These shades replace Tailwind's defaults that fell short
+   * (slate-400 2.6:1, slate-500 4.4:1 on the canvas, white on green-600 3.2:1, on orange-500 2.8:1).
+   */
+  --color-slate-400: #607088;
+  --color-slate-500: #55647b;
+  --color-green-600: #008737;
+  --color-orange-500: #cc4900;
+
   --color-canvas: #f2f7f6;
   --color-ink: #10231f;
 
@@ -71,6 +81,24 @@ body,
 body {
   @apply bg-canvas font-sans text-ink antialiased;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Keyboard users always see where they are (mouse and touch users don't get a ring). */
+:focus-visible {
+  outline: 3px solid var(--color-brand-500);
+  outline-offset: 2px;
+}
+
+/* People who turn animations off (motion sickness, vestibular disorders) get a still UI. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .leaflet-container {

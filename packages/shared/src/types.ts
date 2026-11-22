@@ -127,6 +127,14 @@ export interface Incident {
   summary: string | null;
   reportCount: number;
   mergedInto: string | null;
+  /** MCI Coordinator suggestion (why), until a shift lead decides. */
+  mciSuggestion: string | null;
+  mciActive: boolean;
+  mciActivatedAt: string | null;
+  /** A shift lead decided the suggestion was not a mass-casualty incident. */
+  mciDismissedAt: string | null;
+  /** The caller said help is no longer needed; a dispatcher confirms before anything is stood down. */
+  cancelRequestedAt: string | null;
   createdAt: string;
   triagedAt: string | null;
   dispatchedAt: string | null;
@@ -245,4 +253,80 @@ export const EVENTS = {
   handoverAck: 'handover:ack',
   alertEscalation: 'alert:escalation',
   mciActivated: 'mci:activated',
+  mciUpdated: 'mci:updated',
 } as const;
+
+/**
+ * Escalation alerts (Escalation timers + MCI Coordinator + Pre-Alert fallback).
+ * `severity` drives the toast colour; `ambulanceId` lets a crew app pick out its own.
+ */
+export type AlertKind =
+  | 'untriaged' // not triaged within 60 s
+  | 'overdue' // waiting longer than the priority target (ageing)
+  | 'no_unit' // P1 and no free unit
+  | 'accept_timeout' // crew has not tapped Accept within 60 s
+  | 'stalled' // unit has not moved 2 min after En route
+  | 'mci_suggested'
+  | 'mci_activated'
+  | 'preempted'
+  | 'rerouted'
+  | 'no_hospital'
+  | 'requeued' // every unit left a call that still needs one
+  | 'stood_down' // the dispatcher closed the call this unit was on
+  | 'caller_cancel' // the caller says help is no longer needed
+  | 'closed';
+
+export interface EscalationAlert {
+  kind: AlertKind;
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+  incidentId?: string;
+  ambulanceId?: string;
+  at?: string;
+}
+
+export interface Patient {
+  id: string;
+  incidentId: string;
+  label: string;
+  startTag: StartTag | null;
+  ageEst: number | null;
+  sex: 'M' | 'F' | 'U' | null;
+  vitals: Record<string, string | number> | null;
+  injuries: string | null;
+  treatment: string | null;
+  requiredUnit: HospitalUnitType | null;
+  dispatchId: string | null;
+  destinationHospitalId: string | null;
+}
+
+/** MCI board: every patient, their tag, assigned unit and destination. */
+export interface MciPlanRow {
+  patientId: string;
+  label: string;
+  startTag: StartTag | null;
+  requiredUnit: HospitalUnitType;
+  dispatchId: string | null;
+  callSign: string | null;
+  hospitalId: string | null;
+  hospitalName: string | null;
+  etaMin: number | null;
+  note: string;
+}
+
+export interface MciBoard {
+  incidentId: string;
+  refCode: string;
+  active: boolean;
+  suggestion: string | null;
+  patientsCount: number;
+  tags: Record<StartTag | 'UNTAGGED', number>;
+  units: { dispatchId: string; ambulanceId: string; callSign: string; unitType: UnitType; status: DispatchStatus }[];
+  /** Current assignments (saved on the patients). */
+  rows: MciPlanRow[];
+  /** What the MCI Coordinator proposes now, by capacity. */
+  proposal: MciPlanRow[];
+  /** Beds left per hospital for the needed unit types after the proposal. */
+  capacity: { hospitalId: string; name: string; unitType: HospitalUnitType; status: HospitalUnitStatus; bedsFree: number; planned: number }[];
+  explanation: string;
+}
