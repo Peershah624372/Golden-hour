@@ -6,8 +6,9 @@ services:
     runtime: node
     plan: free
     region: singapore # closest Render region to Pakistan
-    buildCommand: npm install -g pnpm@11.9.0 && pnpm install --frozen-lockfile && pnpm build
-    startCommand: cd apps/api && ./node_modules/.bin/tsx src/index.ts
+    # The API is compiled to plain JavaScript (no TypeScript runtime): much less memory on the 512 MB free plan.
+    buildCommand: npm install -g pnpm@11.9.0 && pnpm install --frozen-lockfile && pnpm build && pnpm --filter @gh/api build
+    startCommand: cd apps/api && node dist/index.mjs
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
@@ -29,9 +30,13 @@ services:
         value: https://generativelanguage.googleapis.com/v1beta/openai
       - key: LLM_MODEL
         value: gemini-2.5-flash
-      # Optional: a Neon Postgres URL keeps data across restarts. Empty = built-in database,
-      # which starts fresh (simulated city + history) on every restart or deploy.
+      # REQUIRED on the free plan: a Neon Postgres connection string (neon.tech -> Connect).
+      # The built-in embedded database needs ~650 MB the first time it starts, more than the free 512 MB.
+      # With Neon the server uses about 230 MB, and the data survives restarts.
       - key: DATABASE_URL
         sync: false
+      # Collect garbage before the 512 MB limit instead of after.
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=400
       - key: EMERGENCY_NUMBER
         value: "1122"

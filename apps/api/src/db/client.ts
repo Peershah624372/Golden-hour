@@ -1,10 +1,13 @@
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from './schema';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const migrationsFolder = path.resolve(here, '../../drizzle');
+// apps/api, whether running from src/db (tsx, tests) or from the compiled dist/ bundle.
+const apiRoot = [path.resolve(here, '../..'), path.resolve(here, '..')].find((d) => existsSync(path.join(d, 'drizzle'))) ?? path.resolve(here, '../..');
+const migrationsFolder = path.join(apiRoot, 'drizzle');
 
 export type DB = NodePgDatabase<typeof schema>;
 
@@ -29,7 +32,7 @@ async function connect(): Promise<{ db: DB; kind: 'postgres' | 'pglite'; close: 
   const { migrate } = await import('drizzle-orm/pglite/migrator');
   // PGLITE_DIR=memory gives a throwaway in-memory database (automated tests).
   const dir = process.env.PGLITE_DIR;
-  const client = dir === 'memory' ? new PGlite() : new PGlite(dir ? path.resolve(dir) : path.resolve(here, '../../.pglite'));
+  const client = dir === 'memory' ? new PGlite() : new PGlite(dir ? path.resolve(dir) : path.join(apiRoot, '.pglite'));
   const db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder });
   return { db: db as unknown as DB, kind: 'pglite', close: () => client.close() };

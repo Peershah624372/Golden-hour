@@ -106,7 +106,7 @@ All settings are in [`.env.example`](.env.example). On a public deployment, set 
 
 ### Deploy
 
-One service runs everything: in production the API also serves the built web app, so the citizen app, staff screens, API and live updates share one URL. [`render.yaml`](render.yaml) deploys it to Render's free plan: **New → Blueprint → pick this repo**, enter `STAFF_PIN` and `LLM_API_KEY`, and Render generates `AUTH_SECRET` and `DATA_KEY`. Any Node 24 host works the same way: `pnpm install && pnpm build`, then `cd apps/api && npx tsx src/index.ts`.
+One service runs everything: in production the API also serves the built web app, so the citizen app, staff screens, API and live updates share one URL. [`render.yaml`](render.yaml) deploys it to Render's free plan: **New → Blueprint → pick this repo**, enter `STAFF_PIN`, `LLM_API_KEY` and a free [Neon](https://neon.tech) Postgres `DATABASE_URL`, and Render generates `AUTH_SECRET` and `DATA_KEY`. The embedded database is for local use: its first-time setup needs about 650 MB, more than a 512 MB free host has, whereas with Neon the server stays near 230 MB. Any Node 24 host works the same way: `pnpm install && pnpm build && pnpm --filter @gh/api build`, then `cd apps/api && node dist/index.mjs`.
 
 ## Tests
 

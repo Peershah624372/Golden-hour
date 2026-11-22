@@ -9,7 +9,9 @@
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx --env-file-if-exists=../../.env src/db/seed.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "tsx --test --test-concurrency=1 --test-force-exit \"test/**/*.test.ts\""
+    "test": "tsx --test --test-concurrency=1 --test-force-exit \"test/**/*.test.ts\"",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/index.mjs --log-level=warning --external:@electric-sql/pglite --external:cors --external:drizzle-orm --external:express --external:pg --external:socket.io --external:zod",
+    "start:prod": "node --env-file-if-exists=../../.env dist/index.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.17",
@@ -28,6 +30,7 @@
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "esbuild": "~0.28.0"
   }
 }

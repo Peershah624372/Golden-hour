@@ -58,8 +58,9 @@ export async function seedIfEmpty(d: DB = db): Promise<boolean> {
   return true;
 }
 
-// CLI: pnpm db:seed
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// CLI: pnpm db:seed. Only when this very file is the entry point: in the compiled bundle,
+// import.meta.url is the whole server's file, which must never reseed (and wipe) the database on start.
+if (/[\\/]seed\.ts$/.test(process.argv[1] ?? '') && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await seed();
   console.log('Seeded demo data: %d hospitals, %d ambulances', HOSPITALS.length, AMBULANCES.length);
   await closeDb();
