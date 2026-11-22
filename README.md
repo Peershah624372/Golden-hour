@@ -8,7 +8,7 @@ GoldenHour is an AI-assisted emergency medical response network, built for **Evo
 
 - **Live demo:** https://goldenhour-gsvb.onrender.com — the citizen SOS app is open to everyone. The staff screens (Command Center, Crew, ER, Admin) ask for a PIN.
 - **Staff PIN (for judges):** `624372` — on the home page, pick a role (Command Center, Ambulance Crew, Hospital ER or Admin) and enter this PIN. The first load can take about 30 seconds: the free host sleeps when idle.
-- **Demo video (3 min):** _add the video link here_
+- **Demo video:** https://youtu.be/XyvPuXxpgrE
 
 ---
 
