@@ -6,7 +6,7 @@ GoldenHour is an AI-assisted emergency medical response network, built for **Evo
 
 > **Prototype.** Hospitals, ambulances and patients are **simulated** (around Sukkur, Pakistan; hospital names are fictional). GoldenHour supports, and never replaces, national emergency numbers (1122 / 115 in Pakistan, 112, 911). A "Call 1122" button is on every citizen screen.
 
-- **Live demo:** _add the deployed URL here_
+- **Live demo:** https://goldenhour-gsvb.onrender.com — the citizen SOS app is open to everyone. The staff screens (Command Center, Crew, ER, Admin) ask for a PIN, which is in the submission's testing notes.
 - **Demo video (3 min):** _add the video link here_
 
 ---
