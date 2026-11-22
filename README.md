@@ -6,7 +6,8 @@ GoldenHour is an AI-assisted emergency medical response network, built for **Evo
 
 > **Prototype.** Hospitals, ambulances and patients are **simulated** (around Sukkur, Pakistan; hospital names are fictional). GoldenHour supports, and never replaces, national emergency numbers (1122 / 115 in Pakistan, 112, 911). A "Call 1122" button is on every citizen screen.
 
-- **Live demo:** https://goldenhour-gsvb.onrender.com — the citizen SOS app is open to everyone. The staff screens (Command Center, Crew, ER, Admin) ask for a PIN, which is in the submission's testing notes.
+- **Live demo:** https://goldenhour-gsvb.onrender.com — the citizen SOS app is open to everyone. The staff screens (Command Center, Crew, ER, Admin) ask for a PIN.
+- **Staff PIN (for judges):** `624372` — on the home page, pick a role (Command Center, Ambulance Crew, Hospital ER or Admin) and enter this PIN. The first load can take about 30 seconds: the free host sleeps when idle.
 - **Demo video (3 min):** _add the video link here_
 
 ---
@@ -21,6 +22,52 @@ When someone is badly hurt, the first hour often decides whether they live. Abou
 | The wrong ambulance is sent | Dispatch Agent ranks every free unit by road ETA and capability (ALS/BLS) |
 | The patient goes to the wrong hospital (no bed, unit diverting) | Hospital Match Agent picks by required unit + live capacity + ETA, then **pre-alerts the ER** (ATMIST) |
 | Nobody at the scene knows what to do | Spoken, step-by-step first aid (CPR beat included), in English and Urdu, **offline** |
+
+## The story
+
+### Inspiration
+
+After a serious crash, the first hour decides whether someone lives. Yet that hour is often lost before an ambulance even moves. Nobody calls, or they call late because they don't know the number or can't describe where they are. The nearest ambulance may not be the right one. The patient may arrive at a hospital with no free bed. Meanwhile, the people standing over the patient have no idea what to do. Phone signal is weakest exactly where crashes happen: on highways and outside cities. We wanted to build something that still works on that road, on a basic phone, in the language people speak.
+
+### What it does
+
+A bystander sends an SOS in three taps, by voice, or by text message, with no account. GoldenHour's agents set the priority, pick the right ambulance and the right hospital, and warn the emergency room before the patient arrives. While help is on the way, the phone coaches the bystander through first aid out loud, in English or Urdu. When there's no internet, the SOS goes by SMS. When there's no signal at all, it waits on the phone and sends itself as soon as any connection returns.
+
+### How we built it
+
+- **Web app:** a single React progressive web app serves five screens: citizen, command center, crew, emergency room and admin.
+- **Server:** a Node.js API pushes live updates over Socket.IO and stores data in PostgreSQL.
+- **Maps:** OpenStreetMap, with real road travel times from OSRM.
+- **Agents:** each of the eight agents is a plain, testable module.
+- **AI:** the AI (Gemini, through any OpenAI-compatible API) only reads free text and suggests. Plain rules make every life-critical decision. The whole system keeps running if the AI is slow, wrong or switched off.
+- **Testing:** 122 API tests cover the full incident lifecycle, the AI guardrails and access control. Browser tests and an axe accessibility audit check the real screens.
+
+### Challenges we ran into
+
+- **Trusting AI in an emergency.** We decided the AI can raise a priority but never lower it. Red-flag rules act first. Any downgrade needs a dispatcher's written reason.
+- **One website for the public and for staff.** The citizen app and the command center share a URL, so the API had to be the wall. Staff tokens are signed, and each role sees only its own data.
+- **Free hosting.** The embedded database needed about 650 MB to start, but the free server has 512 MB. We moved to a hosted Postgres (Neon) and bundled the API, which keeps the server near 230 MB.
+- **Urdu voice.** Many devices have no Urdu voice installed. Instead of playing silence, the coach says so honestly and offers English.
+- **A crash caught while recording the demo.** Opening the SMS simulator blanked the screen in the newest Chrome and Edge. The cause was one line where a React effect returned a value. It is fixed now.
+
+### Accomplishments we're proud of
+
+- It is a working, deployed system, not a mock-up: an SOS really travels from a phone, through triage and dispatch, to a hospital pre-alert.
+- It works across the whole connectivity ladder: app, SMS and fully offline.
+- It meets WCAG 2.1 AA with 0 axe violations across 12 screen states, and offers Urdu with a right-to-left layout.
+- The AI is measured, not just trusted. The admin console shows how often humans changed its suggestions.
+
+### What we learned
+
+Designing for failure is the real work. Every feature had to answer "what happens when the network, the AI or the hospital doesn't respond?" Rules first, AI second, and a human always in charge turned out to be both safer and simpler to build.
+
+### What's next for GoldenHour
+
+- Review of the first-aid content and the Urdu wording by clinicians and native speakers.
+- Integration with Rescue 1122, 112 and 911 dispatch systems, and with hospital information systems.
+- USSD and a call-in voice line for basic phones.
+- Bluetooth relay between phones until one finds signal.
+- A pilot with real ambulance and hospital data.
 
 ## The Connectivity Ladder
 
