@@ -104,6 +104,10 @@ No database or API key is needed locally: the API uses an embedded Postgres (PGl
 
 All settings are in [`.env.example`](.env.example). On a public deployment, set **`AUTH_SECRET`**, **`STAFF_PIN`** and **`DATA_KEY`**. Other useful ones: `DATABASE_URL` (Neon/Postgres), `LLM_*`, `TWILIO_*` (real SMS), `CORS_ORIGIN`, `VITE_API_URL`.
 
+### Deploy
+
+One service runs everything: in production the API also serves the built web app, so the citizen app, staff screens, API and live updates share one URL. [`render.yaml`](render.yaml) deploys it to Render's free plan: **New → Blueprint → pick this repo**, enter `STAFF_PIN` and `LLM_API_KEY`, and Render generates `AUTH_SECRET` and `DATA_KEY`. Any Node 24 host works the same way: `pnpm install && pnpm build`, then `cd apps/api && npx tsx src/index.ts`.
+
 ## Tests
 
 ```bash

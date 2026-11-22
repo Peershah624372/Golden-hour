@@ -1,0 +1,37 @@
+# One-click deploy on Render (render.com -> New -> Blueprint -> pick this repo).
+# One free web service runs the API, the live updates and the built web app on one URL.
+services:
+  - type: web
+    name: goldenhour
+    runtime: node
+    plan: free
+    region: singapore # closest Render region to Pakistan
+    buildCommand: npm install -g pnpm@11.9.0 && pnpm install --frozen-lockfile && pnpm build
+    startCommand: cd apps/api && ./node_modules/.bin/tsx src/index.ts
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # Security: generated once by Render and kept across deploys.
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: DATA_KEY
+        generateValue: true
+      - key: REPORTER_HASH_SALT
+        generateValue: true
+      # Asked for when you create the Blueprint.
+      - key: STAFF_PIN # PIN for the staff screens; give it to judges in the submission's testing notes
+        sync: false
+      - key: LLM_API_KEY # Gemini key from aistudio.google.com/apikey (empty = rules-only)
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai
+      - key: LLM_MODEL
+        value: gemini-2.5-flash
+      # Optional: a Neon Postgres URL keeps data across restarts. Empty = built-in database,
+      # which starts fresh (simulated city + history) on every restart or deploy.
+      - key: DATABASE_URL
+        sync: false
+      - key: EMERGENCY_NUMBER
+        value: "1122"
