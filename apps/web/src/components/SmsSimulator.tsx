@@ -35,7 +35,11 @@ export function SmsSimulator({ onClose }: { onClose: () => void }) {
     api<Msg[]>(`/sms/thread?from=${encodeURIComponent(from)}`).then(setThread).catch(() => {});
     api<{ gateway: string }>('/sms/status').then((s) => setGateway(s.gateway)).catch(() => {});
   }, [from]);
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), [thread]);
+  useEffect(() => {
+    // Braces matter: an effect must not return scrollIntoView's result (newer browsers return a Promise,
+    // which React would treat as a cleanup function and crash the whole screen).
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [thread]);
 
   useSocketEvent<{ to: string; body: string; at: string }>(
     'sms:outbound',
