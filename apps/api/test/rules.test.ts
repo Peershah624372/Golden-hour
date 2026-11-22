@@ -11,7 +11,7 @@ import {
   maxPriority,
   rulesTriage,
 } from '@gh/shared';
-import { rulesParse } from '../src/channels/smsParser';
+import { geocodeLandmark, rulesParse } from '../src/channels/smsParser';
 import { percentile, stat } from '../src/agents/analytics';
 import { requiredUnitFor } from '../src/agents/hospitalMatch';
 
@@ -101,6 +101,19 @@ describe('Plain-text SMS rules parser', () => {
     assert.equal(p.type, 'ACC');
     assert.ok(p.flags.includes('FRC'));
     assert.match(p.locationText ?? '', /ghanta ghar/);
+  });
+  it('places landmarks written in Urdu script, with no AI and no network', async () => {
+    const urdu = 'بیراج کے پاس حادثہ ہوا ہے، تین لوگ زخمی';
+    const p = rulesParse(urdu);
+    assert.equal(p.type, 'ACC');
+    assert.equal((await geocodeLandmark(p.locationText, urdu))?.label, 'Sukkur Barrage');
+    assert.equal((await geocodeLandmark(null, 'روہڑی اسٹیشن پر آدمی گر گیا'))?.label, 'Rohri');
+    assert.equal((await geocodeLandmark(null, 'گھنٹہ گھر کے قریب آگ'))?.label, 'Clock Tower');
+  });
+  it('does not mistake ordinary words for landmarks ("pulse" is not "pul", "پلازہ" is not "پل")', async () => {
+    assert.equal(await geocodeLandmark(null, 'man collapsed, pulse 118, sweating'), null);
+    assert.equal((await geocodeLandmark(null, 'ٹول پلازہ پر حادثہ'))?.label, 'Toll plaza (bypass)');
+    assert.equal((await geocodeLandmark(null, 'پل پر گاڑی الٹ گئی'))?.label, 'Lansdowne Bridge');
   });
 });
 

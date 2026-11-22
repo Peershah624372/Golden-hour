@@ -108,7 +108,7 @@ All settings are in [`.env.example`](.env.example). On a public deployment, set 
 
 ```bash
 pnpm typecheck
-pnpm test          # 119 API tests: in-memory database, no network, a fake AI server
+pnpm test          # 122 API tests: in-memory database, no network, a fake AI server
 ```
 
 They cover the full incident lifecycle; triage rules (English, Roman Urdu, Urdu); duplicate merging and idempotent retries; dispatch and pre-emption; hospital matching, pre-alert, decline and fallback; SMS (coded, plain text, "reply 1", crew codes); escalation timers; mass-casualty distribution; the KPI analytics; **AI guardrails** (raise-only, never overrides a dispatcher, survives broken/slow/failed AI, no personal data sent); encryption and retention; and **access control** (citizen / crew / ER / forged tokens / live channels). Regression tests pin every bug fixed during review.

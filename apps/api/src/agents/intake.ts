@@ -218,7 +218,7 @@ const SYSTEM_PROMPT = `You are the intake assistant of an emergency medical disp
 Read the emergency report (it may be English, Urdu, Roman Urdu, Sindhi, Punjabi or mixed) and return JSON only:
 {"type": one of ${JSON.stringify(INCIDENT_TYPES)} (ACC accident, MED medical, CRD chest pain, BRT breathing, BRN burn, MAT maternity, OTH other),
  "patients": integer number of patients,
- "symptom_flags": subset of ${JSON.stringify(SYMPTOM_FLAGS)} (UNR not responding, NBR not breathing, BLD heavy bleeding, SEZ seizure, CHP chest pain, BRD breathing difficulty, BRN burns, FRC fracture, HED head injury, PRG pregnancy complication),
+ "symptom_flags": subset of ${JSON.stringify(SYMPTOM_FLAGS)} (UNR not responding, NBR not breathing, BLD heavy bleeding, SEZ seizure, CHP chest pain, BRD breathing difficulty, BRN burns, FRC fracture, HED head injury, PRG pregnancy complication) - only flags the report actually states, never inferred from the incident type,
  "priority": "P1" immediate threat to life | "P2" serious but stable | "P3" needs care, not time-critical | "P4" minor,
  "reasons": up to 3 short English reasons for the priority,
  "summary": one short English sentence for the dispatcher (facts only, no diagnosis),

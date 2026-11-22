@@ -154,7 +154,7 @@ describe('Multilingual SMS and the ATMIST headline', () => {
   it('an Urdu SMS: AI extracts type, patients and place; keyword rules stay the floor', async () => {
     aiAnswers((req) =>
       /Extract emergency details/.test(req.system)
-        ? { json: { type: 'ACC', patients: 3, symptom_flags: ['FRC'], location_text: 'barrage', summary: 'Road accident near the barrage, 3 injured.' } }
+        ? { json: { type: 'ACC', patients: 3, symptom_flags: ['FRC'], location_text: 'بیراج', location_en: null, summary: 'Road accident near the barrage, 3 injured.' } }
         : triage('P2')(),
     );
     const r = await H.call('POST', '/sms/inbound', { from: 'sim:ur', text: 'بیراج کے پاس حادثہ ہوا ہے، تین لوگ زخمی، ایک بے ہوش' });
@@ -165,6 +165,16 @@ describe('Multilingual SMS and the ATMIST headline', () => {
     assert.equal(inc.patientsCount, 3);
     assert.equal(inc.priority, 'P1', '"بے ہوش" (unconscious) is a hard red flag: rules, not AI');
     assert.ok(inc.symptomFlags.includes('UNR') && inc.symptomFlags.includes('FRC'), 'rules + AI flags combined');
+  });
+
+  it('uses the English place name the AI gives when the Urdu wording is not in the gazetteer', async () => {
+    aiAnswers((req) =>
+      /Extract emergency details/.test(req.system)
+        ? { json: { type: 'ACC', patients: 1, symptom_flags: [], location_text: 'بڑی گھڑی والا چوک', location_en: 'Clock Tower', summary: 'Accident at the clock square.' } }
+        : triage('P3')(),
+    );
+    const r = await H.call('POST', '/sms/inbound', { from: 'sim:ur2', text: 'بڑی گھڑی والا چوک پر موٹر سائیکل کا حادثہ' });
+    assert.match(r.body.reply, /Clock Tower/);
   });
 
   it('the ER pre-alert gets a one-line AI headline built only from the recorded ATMIST fields', async () => {

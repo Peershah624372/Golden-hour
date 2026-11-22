@@ -458,13 +458,14 @@ function AuditLog({ rows }: { rows: AuditRow[] }) {
         <span className="text-xs text-slate-500">Read-only. Every priority change, pre-emption, override and decline, with who, when and why.</span>
         <div className="ml-auto flex rounded-full bg-canvas p-1 text-xs font-bold" role="group" aria-label="Filter audit log">
           {(['all', 'people', 'agents', 'escalations'] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3 py-1 ${filter === f ? 'bg-white text-brand-800 shadow-soft' : 'text-slate-500'}`}>
+            <button key={f} onClick={() => setFilter(f)} aria-pressed={filter === f} className={`rounded-full px-3 py-1 ${filter === f ? 'bg-white text-brand-800 shadow-soft' : 'text-slate-500'}`}>
               {titleCase(f)}
             </button>
           ))}
         </div>
       </div>
-      <div className="mt-3 max-h-112 overflow-auto">
+      {/* Scrollable: focusable so keyboard users can scroll it (WCAG 2.1.1). */}
+      <div className="mt-3 max-h-112 overflow-auto" tabIndex={0} role="region" aria-label="Audit log entries">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-white">
             <tr className="text-left text-[11px] uppercase tracking-wider text-slate-400">

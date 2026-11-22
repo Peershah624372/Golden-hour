@@ -46,10 +46,20 @@ export function rulesParse(text: string): ParsedText {
 
 export async function parsePlainSms(text: string): Promise<ParsedText> {
   const rules = rulesParse(text);
-  const ai = await llmJson<{ type?: string; patients?: number; symptom_flags?: string[]; location_text?: string | null; summary?: string }>(
+  const ai = await llmJson<{
+    type?: string;
+    patients?: number;
+    symptom_flags?: string[];
+    location_text?: string | null;
+    location_en?: string | null;
+    summary?: string;
+  }>(
     `Extract emergency details from an SMS sent to an ambulance service in Pakistan (English, Urdu, Roman Urdu, Sindhi). JSON only:
-{"type": one of ${JSON.stringify(INCIDENT_TYPES)}, "patients": integer, "symptom_flags": subset of ${JSON.stringify(SYMPTOM_FLAGS)},
- "location_text": the place/landmark exactly as written (or null), "summary": one short English sentence, facts only}`,
+{"type": one of ${JSON.stringify(INCIDENT_TYPES)}, "patients": integer,
+ "symptom_flags": subset of ${JSON.stringify(SYMPTOM_FLAGS)} (UNR not responding, NBR not breathing, BLD heavy bleeding, SEZ seizure, CHP chest pain, BRD breathing difficulty, BRN burns, FRC fracture, HED head injury, PRG pregnancy complication) - ONLY flags the message actually states; never infer from the type of incident,
+ "location_text": the place/landmark exactly as written (or null),
+ "location_en": the same place in English / Latin letters as it appears on a map, e.g. "Sukkur Barrage", "Clock Tower" (or null),
+ "summary": one short English sentence, facts only}`,
     text,
     8000,
   );
@@ -60,23 +70,27 @@ export async function parsePlainSms(text: string): Promise<ParsedText> {
     type: rules.type !== 'OTH' && type === 'OTH' ? rules.type : type,
     patients: Math.max(rules.patients, Number(ai.patients) || 1),
     flags: [...new Set([...rules.flags, ...aiFlags])], // rules are the floor: AI can add, never remove
-    locationText: ai.location_text || rules.locationText,
+    // English name first: it matches the gazetteer and the geocoder; the original wording is the fallback.
+    locationText: ai.location_en || ai.location_text || rules.locationText,
     summary: ai.summary ?? null,
     source: 'ai',
   };
 }
 
-/** Small local gazetteer so landmark lookup works even if the geocoder is unreachable (approximate). */
+/**
+ * Small local gazetteer so landmark lookup works even if the geocoder is unreachable (approximate).
+ * Names in English, Roman Urdu and Urdu script, so an Urdu SMS is placed even in rules-only mode.
+ */
 const LANDMARKS: [RegExp, number, number, string][] = [
-  [/toll\s*plaza/i, 27.6585, 68.8250, 'Toll plaza (bypass)'],
-  [/bypass/i, 27.6700, 68.8350, 'Sukkur bypass'],
-  [/barrage/i, 27.6935, 68.8460, 'Sukkur Barrage'],
-  [/lansdowne|lansdown|pul|bridge/i, 27.6960, 68.8790, 'Lansdowne Bridge'],
-  [/ghanta\s*ghar|clock\s*tower/i, 27.7030, 68.8590, 'Clock Tower'],
-  [/new\s*sukkur/i, 27.7230, 68.8380, 'New Sukkur'],
-  [/military\s*road/i, 27.7120, 68.8500, 'Military Road'],
-  [/airport/i, 27.7220, 68.7920, 'Airport'],
-  [/rohri/i, 27.6920, 68.8960, 'Rohri'],
+  [/toll\s*plaza|ٹول\s*پلازہ/i, 27.6585, 68.8250, 'Toll plaza (bypass)'],
+  [/bypass|بائی\s*پاس|بائپاس/i, 27.6700, 68.8350, 'Sukkur bypass'],
+  [/barrage|beraj|bairaj|بیراج|بئراج/i, 27.6935, 68.8460, 'Sukkur Barrage'],
+  [/lansdowne|lansdown|\bpul\b|bridge|لینسڈاؤن|(?:^|[\s،,])پل(?=$|[\s،,.])/i, 27.6960, 68.8790, 'Lansdowne Bridge'],
+  [/ghanta\s*ghar|clock\s*tower|گھنٹہ\s*گھر/i, 27.7030, 68.8590, 'Clock Tower'],
+  [/new\s*sukkur|نیو\s*سکھر|نئے\s*سکھر/i, 27.7230, 68.8380, 'New Sukkur'],
+  [/military\s*road|ملٹری\s*روڈ/i, 27.7120, 68.8500, 'Military Road'],
+  [/airport|ایئرپورٹ|ائیرپورٹ|ہوائی\s*اڈہ|ہوائی\s*اڈے/i, 27.7220, 68.7920, 'Airport'],
+  [/rohri|روہڑی|روہری/i, 27.6920, 68.8960, 'Rohri'],
 ];
 
 export interface GeoHit {

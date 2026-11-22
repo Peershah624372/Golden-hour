@@ -80,7 +80,7 @@ export function SmsSimulator({ onClose }: { onClose: () => void }) {
           <X className="size-4" />
         </button>
       </div>
-      <div className="flex-1 space-y-2 overflow-y-auto p-3 text-sm">
+      <div className="flex-1 space-y-2 overflow-y-auto p-3 text-sm" tabIndex={0} role="log" aria-label="SMS conversation" aria-live="polite">
         {thread.length === 0 && <div className="text-center text-xs text-slate-500">Send an SMS to GoldenHour. It goes through the same webhook as a real SMS gateway.</div>}
         {thread.map((m, i) => (
           <div key={i} className={`flex ${m.direction === 'IN' ? 'justify-end' : 'justify-start'}`}>
